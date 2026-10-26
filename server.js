@@ -14,6 +14,9 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SEED_FILE = path.join(__dirname, 'data', 'seed.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const FARM_FILE = path.join(DATA_DIR, 'farm-layout.json');
+const DASHBOARD_FILE = path.join(DATA_DIR, 'farm-dashboard.json');
+// Optional: lets sensors / scripts update the farm dashboard with `Authorization: Bearer <token>`
+const FARM_SENSOR_TOKEN = process.env.FARM_SENSOR_TOKEN || '';
 const MODELS_DIR = path.join(DATA_DIR, 'farm-models'); // 3D models uploaded in the farm editor (.glb)
 const MODELS_FILE = path.join(MODELS_DIR, 'models.json');
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
@@ -243,6 +246,69 @@ function writeModels(list) {
 app.get('/api/farm/models', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(readModels());
+});
+
+// Farm dashboard (figures shown over the 3D farm)
+function cleanDashboard(b) {
+  if (!b || typeof b !== 'object') return null;
+  const n = (v, min = -1e9, max = 1e9) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : 0;
+  };
+  const rows = (list, max, map) => (Array.isArray(list) ? list : []).slice(0, max).filter((r) => r && typeof r === 'object').map(map);
+  const w = b.weather && typeof b.weather === 'object' ? b.weather : {};
+  const sensors = b.sensors && typeof b.sensors === 'object' ? b.sensors : {};
+  return {
+    title: str(b.title, 80), subtitle: str(b.subtitle, 120),
+    weather: { condition: str(w.condition, 30), temp: n(w.temp, -60, 70), humidity: n(w.humidity, 0, 100), light: n(w.light, 0, 1e6),
+      wind: n(w.wind, 0, 500) },
+    gauges: rows(b.gauges, 6, (g) => ({ label: str(g.label, 40), value: n(g.value, 0, 100) })),
+    kpis: rows(b.kpis, 12, (k) => ({ label: str(k.label, 40), value: n(k.value), unit: str(k.unit, 16), target: n(k.target) })),
+    sensors: { title: str(sensors.title, 60), unit: str(sensors.unit, 16),
+      bars: rows(sensors.bars, 16, (r) => ({ label: str(r.label, 30), value: n(r.value), max: n(r.max) || 100 })) },
+    updatedAt: new Date().toISOString(),
+  };
+}
+function readDashboard() {
+  try {
+    return JSON.parse(fs.readFileSync(DASHBOARD_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+function writeDashboard(d) {
+  const tmp = `${DASHBOARD_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(d));
+  fs.renameSync(tmp, DASHBOARD_FILE);
+}
+app.get('/api/farm/dashboard', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const d = readDashboard();
+  if (!d) return res.status(204).end();
+  res.json(d);
+});
+// Sensor feed: merge partial values, e.g. {"weather":{"temp":31.5},"kpis":[{"label":"Water use","value":12}]}
+app.patch('/api/farm/dashboard', (req, res) => {
+  const auth = req.headers.authorization || '';
+  const okToken = FARM_SENSOR_TOKEN && auth === `Bearer ${FARM_SENSOR_TOKEN}`;
+  if (!okToken && !readToken(getCookie(req, COOKIE))) return res.status(401).json({ error: 'Not authenticated' });
+  const cur = readDashboard();
+  if (!cur) return res.status(409).json({ error: 'Save a dashboard in the farm editor first' });
+  const p = req.body || {};
+  if (p.weather && typeof p.weather === 'object') Object.assign(cur.weather, p.weather);
+  for (const key of ['gauges', 'kpis']) {
+    for (const row of Array.isArray(p[key]) ? p[key] : []) {
+      const t = cur[key].find((r) => r.label === row.label);
+      if (t && row.value !== undefined) t.value = row.value;
+    }
+  }
+  for (const row of Array.isArray(p.sensors?.bars) ? p.sensors.bars : []) {
+    const t = cur.sensors.bars.find((r) => r.label === row.label);
+    if (t && row.value !== undefined) t.value = row.value;
+  }
+  const clean = cleanDashboard(cur);
+  writeDashboard(clean);
+  res.json(clean);
 });
 
 app.get('/api/qr.svg', async (req, res) => {
@@ -476,7 +542,13 @@ function cleanFarmLayout(b) {
       /^[A-Za-z0-9+/=]*$/.test(b.ground.data)) {
     ground = { size: num(b.ground.size, 16, 2048, 512), extent: num(b.ground.extent, 10, 2000, 140), data: b.ground.data };
   }
-  return { version: 1, savedAt: new Date().toISOString(), objects, ground };
+  const zones = (Array.isArray(b.zones) ? b.zones : []).slice(0, 60).filter((z) => z && typeof z === 'object').map((z) => {
+    const view = Array.isArray(z.view) && z.view.length === 6 && z.view.every((v) => Number.isFinite(Number(v)))
+      ? z.view.map((v) => num(v, -2000, 2000)) : undefined;
+    return { name: str(z.name, 60) || 'Zone', icon: str(z.icon, 8), x: num(z.x, -1000, 1000), z: num(z.z, -1000, 1000),
+      h: num(z.h, 1, 100, 9), area: num(z.area, 0, 1e7), notes: str(z.notes, 300), view };
+  });
+  return { version: 1, savedAt: new Date().toISOString(), objects, ground, zones };
 }
 admin.put('/farm', (req, res) => {
   const layout = cleanFarmLayout(req.body);
@@ -485,6 +557,16 @@ admin.put('/farm', (req, res) => {
   fs.writeFileSync(tmp, JSON.stringify(layout));
   fs.renameSync(tmp, FARM_FILE);
   res.json({ ok: true, savedAt: layout.savedAt, objects: layout.objects.length });
+});
+admin.put('/farm/dashboard', (req, res) => {
+  const d = cleanDashboard(req.body);
+  if (!d) return res.status(400).json({ error: 'Invalid dashboard' });
+  writeDashboard(d);
+  res.json(d);
+});
+admin.delete('/farm/dashboard', (req, res) => {
+  fs.rmSync(DASHBOARD_FILE, { force: true });
+  res.json({ ok: true });
 });
 admin.delete('/farm', (req, res) => {
   if (fs.existsSync(FARM_FILE)) fs.unlinkSync(FARM_FILE);

@@ -15,7 +15,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { wind } from './shaders.js';
 import { createSky, createTerrain, createForest, GroundMask, Grass, terrainHeight } from './world.js';
 import { Library, Farm } from './library.js';
-import { defaultLayout } from './default-layout.js';
+import { defaultLayout, defaultZones, defaultDashboard } from './default-layout.js';
+import { Hud } from './hud.js';
 
 const params = new URLSearchParams(location.search);
 const QUALITY = params.get('quality') || (matchMedia('(pointer: coarse)').matches ? 'low' : 'high');
@@ -181,6 +182,29 @@ if (saved && Array.isArray(saved.objects)) {
 rebuildGrass();
 env.setElevation(Number(document.getElementById('sun').value));
 
+// ---------------------------------------------------------------- digital-twin overlay
+const hud = new Hud({ camera, controls, renderer, overview: { cam: camera.position.clone(), target: controls.target.clone() } });
+hud.setZones(saved && Array.isArray(saved.zones) ? saved.zones : defaultZones());
+async function loadDashboard() {
+  try {
+    const res = await fetch('/api/farm/dashboard', { cache: 'no-store' });
+    if (res.status === 200) return await res.json();
+  } catch { /* offline: keep what we have */ }
+  return null;
+}
+hud.setDashboard((await loadDashboard()) || defaultDashboard());
+// live figures (e.g. pushed by sensors through PATCH /api/farm/dashboard)
+setInterval(async () => {
+  if (editor?.active) return;
+  const d = await loadDashboard();
+  if (d && d.updatedAt !== hud.dashboard?.updatedAt) hud.setDashboard(d);
+}, 30000);
+const hudBtn = document.getElementById('hudToggle');
+let hudOn = !matchMedia('(max-width: 640px)').matches && params.get('hud') !== '0';
+const applyHud = () => { hud.setVisible(hudOn); hudBtn.textContent = hudOn ? 'Hide dashboard' : 'Show dashboard'; };
+hudBtn.addEventListener('click', () => { hudOn = !hudOn; applyHud(); });
+applyHud();
+
 const loader = document.getElementById('loader');
 if (STILL) loader.remove(); else loader.classList.add('done');
 window.__farmReady = true;
@@ -200,7 +224,7 @@ if (await canEdit()) {
   editBtn.addEventListener('click', async () => {
     if (!editor) {
       const { Editor } = await import('./editor.js');
-      editor = new Editor({ scene, camera, renderer, controls, farm, lib, mask, rebuildGrass, gltfLoader });
+      editor = new Editor({ scene, camera, renderer, controls, farm, lib, mask, rebuildGrass, gltfLoader, hud });
     }
     editor.setActive(!editor.active);
     editBtn.textContent = editor.active ? 'Exit editor' : 'Edit farm';
@@ -235,6 +259,7 @@ renderer.setAnimationLoop(() => {
   wind.uTime.value += dt;
   farm.animate(dt);
   for (const m of lib.waterMaterials) m.normalMap?.offset.set(wind.uTime.value * 0.004, wind.uTime.value * 0.006);
+  hud.update(dt);
   controls.update();
   const minY = terrainHeight(camera.position.x, camera.position.z) + 1.2;
   if (camera.position.y < minY) camera.position.y = minY;

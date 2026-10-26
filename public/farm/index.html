@@ -31,6 +31,83 @@
     #loader .bar { height: 6px; margin-top: 12px; border-radius: 3px; background: rgba(11, 42, 82, 0.15); overflow: hidden; }
     #loader .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
 
+
+    /* ---------- digital-twin overlay ---------- */
+    :root { --hud-bg: rgba(5, 28, 36, 0.72); --hud-line: rgba(88, 226, 210, 0.35); --hud-ink: #dffbf7; --hud-acc: #3ee6cf; --hud-dim: rgba(223, 251, 247, 0.62); }
+    .hud-markers { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+    .hud-marker { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0;
+                  border: 0; background: none; cursor: pointer; pointer-events: auto; transform-origin: 50% 100%; font: inherit; }
+    .hud-marker .pin { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; border-radius: 50%;
+                       background: radial-gradient(circle at 35% 30%, rgba(62, 230, 207, 0.55), rgba(5, 40, 48, 0.9));
+                       border: 2px solid var(--hud-acc); box-shadow: 0 0 14px rgba(62, 230, 207, 0.55); transition: transform 0.2s; }
+    .hud-marker .name { padding: 2px 8px; border-radius: 6px; background: var(--hud-bg); color: var(--hud-ink); font-size: 12px;
+                        white-space: nowrap; border: 1px solid var(--hud-line); backdrop-filter: blur(4px); }
+    .hud-marker .stem { position: absolute; top: 100%; left: 50%; width: 2px; margin-left: -1px;
+                        background: linear-gradient(var(--hud-acc), rgba(62, 230, 207, 0)); pointer-events: none; }
+    .hud-marker:hover .pin, .hud-marker.on .pin { transform: scale(1.15); box-shadow: 0 0 22px rgba(62, 230, 207, 0.9); }
+    .hud-marker.on .name { background: var(--hud-acc); color: #032027; font-weight: 600; }
+    .hud-tabs { position: fixed; top: 14px; left: 0; right: 0; margin: 0 auto; width: fit-content; max-width: calc(100vw - 460px);
+                display: flex; gap: 4px; padding: 5px; z-index: 6; overflow-x: auto; border-radius: 12px;
+                background: var(--hud-bg); border: 1px solid var(--hud-line); backdrop-filter: blur(8px); }
+    .hud-tabs .tab { flex: none; border: 0; background: none; color: var(--hud-ink); padding: 6px 11px; border-radius: 8px; cursor: pointer;
+                     font: inherit; font-size: 12.5px; white-space: nowrap; }
+    .hud-tabs .tab:hover { background: rgba(62, 230, 207, 0.15); }
+    .hud-tabs .tab.on { background: var(--hud-acc); color: #032027; font-weight: 600; }
+    .hud-tabs .tab.tour { color: var(--hud-acc); border: 1px solid var(--hud-line); }
+    .hud-panel { position: fixed; z-index: 5; color: var(--hud-ink); font-size: 12.5px; padding: 14px; border-radius: 14px;
+                 background: var(--hud-bg); border: 1px solid var(--hud-line); backdrop-filter: blur(8px);
+                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25), inset 0 0 30px rgba(62, 230, 207, 0.06); }
+    .hud-panel h2 { margin: 0; font-size: 16px; letter-spacing: 0.02em; }
+    .hud-panel h3 { margin: 14px 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--hud-acc);
+                    display: flex; justify-content: space-between; align-items: baseline; }
+    .hud-panel h3 small { color: var(--hud-dim); letter-spacing: 0; text-transform: none; }
+    .hud-panel .sub { margin: 2px 0 0; color: var(--hud-dim); }
+    .hud-left { left: 16px; top: 70px; width: 250px; max-height: calc(100vh - 160px); overflow: auto; }
+    .hud-left .gauges { display: flex; justify-content: space-between; margin-top: 12px; }
+    .gauge { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 33%; text-align: center; color: var(--hud-dim); font-size: 11px; }
+    .gauge .ring { position: relative; width: 58px; height: 58px; }
+    .gauge svg { width: 100%; height: 100%; }
+    .gauge .track { fill: none; stroke: rgba(62, 230, 207, 0.15); stroke-width: 6; }
+    .gauge .val { fill: none; stroke: var(--hud-acc); stroke-width: 6; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(62, 230, 207, 0.7)); }
+    .gauge b { position: absolute; inset: 0; display: grid; place-items: center; color: var(--hud-ink); font-size: 13px; }
+    .hud-left .zones { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+    .hud-left .zones button { width: 100%; display: flex; justify-content: space-between; gap: 6px; border: 0; padding: 6px 8px; border-radius: 7px;
+                              background: rgba(62, 230, 207, 0.06); color: var(--hud-ink); cursor: pointer; font: inherit; text-align: left; }
+    .hud-left .zones button:hover { background: rgba(62, 230, 207, 0.16); }
+    .hud-left .zones li.on button { background: rgba(62, 230, 207, 0.28); }
+    .hud-left .zones em { color: var(--hud-dim); font-style: normal; white-space: nowrap; }
+    .hud-left .zone-card { margin-top: 10px; padding: 10px; border-radius: 9px; border: 1px solid var(--hud-line); background: rgba(62, 230, 207, 0.08); }
+    .hud-left .zone-card p { margin: 4px 0 0; color: var(--hud-dim); line-height: 1.45; }
+    .hud-right { right: 16px; top: 70px; width: 250px; max-height: calc(100vh - 290px); overflow: auto; }
+    .hud-right .clock { color: var(--hud-dim); font-size: 11.5px; }
+    .hud-right .temp { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 8px; }
+    .hud-right .temp b { font-size: 30px; font-weight: 600; }
+    .hud-right .temp span { color: var(--hud-acc); }
+    .hud-right .wx { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .hud-right .wx span { display: flex; flex-direction: column; padding: 6px; border-radius: 7px; background: rgba(62, 230, 207, 0.07); font-weight: 600; }
+    .hud-right .wx small { color: var(--hud-dim); font-weight: 400; font-size: 10.5px; }
+    .hud-right .kpis { display: grid; gap: 9px; }
+    .hud-right .kpi .row { display: flex; justify-content: space-between; gap: 8px; }
+    .hud-right .kpi .row span { color: var(--hud-dim); }
+    .hud-right .kpi small { color: var(--hud-dim); font-weight: 400; }
+    .hud-right .kpi .bar { height: 4px; margin-top: 4px; border-radius: 2px; background: rgba(62, 230, 207, 0.14); overflow: hidden; }
+    .hud-right .kpi .bar i { display: block; height: 100%; background: linear-gradient(90deg, #2bb7a6, var(--hud-acc)); box-shadow: 0 0 6px var(--hud-acc); }
+    .hud-sensors { right: 16px; bottom: 16px; width: min(420px, calc(100vw - 32px)); }
+    .hud-sensors h3 { margin-top: 0; }
+    .hud-sensors .bars { display: flex; gap: 8px; align-items: flex-end; height: 120px; }
+    .hud-sensors .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+    .hud-sensors .col b { font-size: 11px; }
+    .hud-sensors .col .track { flex: 1; width: 16px; display: flex; align-items: flex-end; border-radius: 4px; background: rgba(62, 230, 207, 0.1); }
+    .hud-sensors .col .track i { display: block; width: 100%; border-radius: 4px; background: linear-gradient(0deg, #1f8f84, var(--hud-acc));
+                                 box-shadow: 0 0 8px rgba(62, 230, 207, 0.6); }
+    .hud-sensors .col span { color: var(--hud-dim); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    body.hud-off .hud-panel, body.hud-off .hud-tabs { display: none; }
+    body:not(.hud-off) .ui .hint { display: none; }
+    body.editing .hud-panel, body.editing .hud-tabs { display: none; }
+    @media (max-width: 900px) { .hud-left, .hud-right { width: 200px; } .hud-sensors { display: none; }
+                                .hud-tabs { top: auto; bottom: 76px; max-width: calc(100vw - 32px); } }
+    @media (max-width: 640px) { .hud-panel { display: none; } }
+
     /* ---------- editor ---------- */
     .editor-toolbar, .editor-panel, .editor-status { display: none; }
     body.editing .editor-toolbar { display: flex; }
@@ -102,6 +179,24 @@
     .model-row input { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
     .model-row button { border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
     .model-row .danger { color: #b3261e; }
+    .props .zone-list { display: grid; gap: 3px; margin: 6px 0; max-height: 230px; overflow: auto; }
+    .props .zone-row { text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 6px 8px; cursor: pointer; font: inherit; }
+    .props .zone-row.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .props .field input[type=text], .props .field select, .props .field textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+                                                                                  border-radius: 6px; font: inherit; resize: vertical; }
+    .props .field { margin-top: 8px; }
+    .dash-dialog { width: min(640px, calc(100vw - 32px)); }
+    .dash-dialog h4 { margin: 14px 0 4px; }
+    .dash-dialog .row .field { flex: 1; min-width: 0; }
+    .dash-dialog input { width: 100%; min-width: 0; }
+    .dash-rows { display: grid; gap: 4px; }
+    .dash-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; grid-template-columns: 2fr; gap: 6px; align-items: center; }
+    .dash-row > button { width: 28px; }
+    .dash-row.head span { font-size: 11px; opacity: 0.6; }
+    .dash-row input { padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .dash-row .danger, .dash-rows .add { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+    .dash-row .danger { color: #b3261e; }
+    .dash-rows .add { justify-self: start; }
     .editor-status { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; z-index: 11;
                      background: var(--accent); color: #fff; font-size: 13px; max-width: calc(100vw - 32px); }
     .editor-status.show { display: block; }
@@ -125,6 +220,7 @@
   <div class="ui glass">
     <label>Time of day <input id="sun" type="range" min="4" max="60" step="0.5" value="30"></label>
     <button id="spin" class="btn" type="button">Auto-rotate</button>
+    <button id="hudToggle" class="btn alt" type="button">Hide dashboard</button>
     <button id="edit" class="btn alt" type="button" hidden>Edit farm</button>
     <span class="hint">Drag to orbit · scroll / pinch to zoom · right-drag to pan</span>
   </div>

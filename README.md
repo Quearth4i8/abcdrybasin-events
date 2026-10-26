@@ -74,6 +74,24 @@ agroforestry orchard (olive, citrus, banana, date palm).
 The saved layout is stored in `DATA_DIR/farm-layout.json` (served at `GET /api/farm`, saved with
 `PUT /api/admin/farm`). It is not part of the admin JSON backup; use *Export layout* in the editor.
 
+**Digital-twin overlay.** Visitors see floating zone markers (click to fly there), zone tabs,
+a **▶ Guided tour** for presentations, and dashboard panels: gauges, zone areas, weather,
+resources & output, sensor bars (hide them with *Hide dashboard*, or `?hud=0`). In the editor,
+the **Zones & dashboard** tool adds/moves/renames zones, sets their icon, area, description and
+camera view (*Use current view*), reorders tour stops, and **Edit dashboard…** changes the figures.
+
+Live data: sensors or scripts can update the dashboard by sending partial JSON. Start the server
+with `FARM_SENSOR_TOKEN=some-long-secret`, then for example:
+
+```bash
+curl -X PATCH http://SERVER/api/farm/dashboard -H 'Authorization: Bearer some-long-secret' \
+     -H 'Content-Type: application/json' \
+     -d '{"weather":{"temp":24.2,"humidity":61},"kpis":[{"label":"Water use","value":35.5}],"sensors":{"bars":[{"label":"Beds","value":58}]}}'
+```
+
+Rows are matched by `label`; open pages refresh every 30 s. The dashboard is stored in
+`DATA_DIR/farm-dashboard.json`.
+
 **Using your own 3D models.** Every object can be swapped for a better model, and new ones
 (hydroponic systems, machines…) can be added without touching code:
 

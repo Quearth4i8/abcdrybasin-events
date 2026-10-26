@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { terrainHeight, LAYERS } from './world.js';
-import { defaultLayout } from './default-layout.js';
+import { defaultLayout, defaultZones, defaultDashboard } from './default-layout.js';
 
 const LAYER_LABELS = { grass: 'Grass', dirt: 'Dirt / mulch', soil: 'Plowed soil', paving: 'Road (asphalt)', gravel: 'Gravel' };
 const LAYER_SWATCH = { grass: '#5d7d2c', dirt: '#7a6247', soil: '#4a3526', paving: '#3a3b3d', gravel: '#a39a8a' };
@@ -72,6 +72,7 @@ export class Editor {
     this.ui.tools = {
       select: tb('Select', 'Select & move objects (V)', () => this.setTool('select')),
       paint: tb('Paint ground', 'Paint roads, soil, gravel… (B)', () => this.setTool('paint')),
+      zones: tb('Zones & dashboard', 'Zone markers, tabs, tour stops and dashboard figures (Z)', () => this.setTool('zones')),
     };
     this.ui.modes = {
       translate: tb('Move', 'Move (W)', () => this.setTransformMode('translate')),
@@ -264,7 +265,9 @@ export class Editor {
     this.brushRing.visible = false;
     this.controls.mouseButtons.LEFT = tool === 'paint' ? null : THREE.MOUSE.ROTATE;
     this.controls.mouseButtons.RIGHT = tool === 'paint' ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
-    if (tool === 'paint') this.clearSelection();
+    if (tool === 'paint' || tool === 'zones') this.clearSelection();
+    if (tool !== 'zones') this.zonePick = null;
+    this.hud.onMarkerClick = tool === 'zones' ? (i) => { this.zoneSel = i; this.refreshPanels(); } : (i) => this.hud.focusZone(i);
     this.refreshPanels();
   }
 
@@ -291,6 +294,7 @@ export class Editor {
     p.replaceChildren();
     this.ui.undo.disabled = !this.undoStack.length;
     this.ui.redo.disabled = !this.redoStack.length;
+    if (this.tool === 'zones') { this.zonesPanel(p); return; }
     if (this.tool === 'paint') {
       p.append(el('h3', {}, 'Paint the ground'),
         el('div', { class: 'swatches' }, LAYERS.map((l) => el('button', { type: 'button', class: `swatch ${this.brush.layer === l ? 'on' : ''}`,
@@ -353,7 +357,7 @@ export class Editor {
 
   // ------------------------------------------------------------------ history
   state() {
-    return { objects: JSON.stringify(this.farm.toJSON()), mask: this.maskSnapshot };
+    return { objects: JSON.stringify(this.farm.toJSON()), zones: JSON.stringify(this.hud.zones), mask: this.maskSnapshot };
   }
 
   checkpoint() {
@@ -366,6 +370,7 @@ export class Editor {
   restore(s) {
     this.clearSelection();
     this.farm.load(JSON.parse(s.objects));
+    this.hud.setZones(JSON.parse(s.zones));
     if (s.mask !== this.maskSnapshot) {
       this.mask.data.set(s.mask);
       this.mask.texture.needsUpdate = true;
@@ -667,6 +672,7 @@ export class Editor {
       // the gizmo keeps its last hovered axis after it is hidden: only defer to it while it is shown
       if (this.gizmoHelper.visible && (this.gizmo.dragging || this.gizmo.axis)) return;
       if (this.tool === 'place') { this.moveGhost(this.groundPoint(e)); this.placeGhost(e.shiftKey); return; }
+      if (this.tool === 'zones') { this.zoneClick(this.groundPoint(e)); return; }
       if (this.tool !== 'select') return;
       this.groundPoint(e);
       const o = this.farm.pick(this.raycaster);
@@ -690,6 +696,7 @@ export class Editor {
       else if (k === 'e') this.setTransformMode('rotate');
       else if (k === 'r') this.setTransformMode('scale');
       else if (k === 'b') this.setTool('paint');
+      else if (k === 'z') this.setTool('zones');
       else if (k === 'v') this.setTool('select');
     });
     addEventListener('beforeunload', (e) => {
@@ -697,9 +704,133 @@ export class Editor {
     });
   }
 
+  // ------------------------------------------------------------------ zones (markers, tabs, tour) & dashboard
+  zonesPanel(p) {
+    const zones = this.hud.zones;
+    const i = this.zoneSel ?? -1;
+    const z = zones[i];
+    const change = (fn) => {
+      this.checkpoint();
+      fn();
+      this.hud.setZones([...this.hud.zones]);
+      this.refreshPanels();
+    };
+    p.append(el('h3', {}, 'Zones'),
+      el('p', { class: 'help' }, 'Zones are the markers over the farm, the tabs at the top and the stops of the guided tour.'),
+      el('div', { class: 'zone-list' }, zones.map((zz, k) => el('button', { type: 'button', class: `zone-row ${k === i ? 'on' : ''}`,
+        onclick: () => { this.zoneSel = k; this.zonePick = null; this.hud.focusZone(k); this.refreshPanels(); } }, `${zz.icon || '•'} ${zz.name}`))),
+      el('div', { class: 'actions' },
+        el('button', { type: 'button', onclick: () => { this.zonePick = { add: true }; this.status('Click the ground where the new zone marker goes'); } }, '+ Add zone'),
+        el('button', { type: 'button', onclick: () => this.openDashboardEditor() }, 'Edit dashboard…')));
+    if (!z) return;
+    const icons = ['🏠', '🐔', '🐐', '🐄', '🐑', '🥬', '🍅', '🌽', '🐟', '🌱', '💧', '🐝', '🌳', '🌴', '🫒', '🍊', '☀️', '⚡', '♻️', '🚜', '🏭', '📍'];
+    const field = (label, input) => el('label', { class: 'field' }, label, input);
+    const name = el('input', { type: 'text', value: z.name, maxlength: 60, onchange: (e) => change(() => { z.name = e.target.value || 'Zone'; }) });
+    const icon = el('select', { onchange: (e) => change(() => { z.icon = e.target.value; }) },
+      [...new Set([z.icon, ...icons])].filter(Boolean).map((ic) => el('option', { value: ic, selected: ic === z.icon }, ic)));
+    const area = el('input', { type: 'number', min: 0, step: 10, value: z.area || 0, onchange: (e) => change(() => { z.area = Math.max(0, +e.target.value || 0); }) });
+    const h = el('input', { type: 'number', min: 1, max: 60, step: 1, value: z.h ?? 9, onchange: (e) => change(() => { z.h = Math.max(1, +e.target.value || 9); }) });
+    const notes = el('textarea', { rows: 3, maxlength: 300, onchange: (e) => change(() => { z.notes = e.target.value; }) });
+    notes.value = z.notes || '';
+    p.append(el('h4', {}, 'Selected zone'),
+      field('Name', name),
+      el('div', { class: 'fields' }, field('Icon', icon), field('Area (m²)', area)),
+      el('div', { class: 'fields' }, field('Marker height (m)', h)),
+      field('Description (shown when selected)', notes),
+      el('div', { class: 'actions' },
+        el('button', { type: 'button', onclick: () => { this.zonePick = { move: i }; this.status('Click the ground to move this marker'); } }, 'Move marker'),
+        el('button', { type: 'button', title: 'Tabs and the tour will show the farm from the current camera position',
+          onclick: () => change(() => {
+            const c = this.camera.position, t = this.controls.target;
+            z.view = [c.x, c.y, c.z, t.x, t.y, t.z].map((v) => Math.round(v * 100) / 100);
+            this.status('Saved this camera view for the zone', 'ok');
+          }) }, z.view ? 'Update view ✓' : 'Use current view'),
+        z.view ? el('button', { type: 'button', onclick: () => change(() => { delete z.view; }) }, 'Auto view') : null,
+        el('button', { type: 'button', onclick: () => change(() => { if (i > 0) [zones[i - 1], zones[i]] = [zones[i], zones[i - 1]]; this.zoneSel = Math.max(0, i - 1); }) }, '↑'),
+        el('button', { type: 'button', onclick: () => change(() => { if (i < zones.length - 1) [zones[i + 1], zones[i]] = [zones[i], zones[i + 1]]; this.zoneSel = Math.min(zones.length - 1, i + 1); }) }, '↓'),
+        el('button', { type: 'button', class: 'danger', onclick: () => change(() => { zones.splice(i, 1); this.zoneSel = -1; }) }, 'Delete')));
+  }
+
+  zoneClick(pt) {
+    if (!pt || !this.zonePick) return;
+    const pick = this.zonePick;
+    this.zonePick = null;
+    this.checkpoint();
+    const zones = this.hud.zones;
+    if (pick.add) {
+      zones.push({ name: 'New zone', icon: '📍', x: Math.round(pt.x), z: Math.round(pt.z), h: 9, area: 0, notes: '' });
+      this.zoneSel = zones.length - 1;
+    } else if (zones[pick.move]) {
+      zones[pick.move].x = Math.round(pt.x);
+      zones[pick.move].z = Math.round(pt.z);
+    }
+    this.hud.setZones([...zones]);
+    this.refreshPanels();
+  }
+
+  openDashboardEditor() {
+    const d = structuredClone(this.hud.dashboard || defaultDashboard());
+    const dlg = el('dialog', { class: 'models-dialog dash-dialog' });
+    const close = () => { dlg.close(); dlg.remove(); };
+    const input = (obj, key, type = 'text', attrs = {}) => {
+      const i = el('input', { type, value: obj[key] ?? '', ...attrs });
+      i.addEventListener('input', () => { obj[key] = type === 'number' ? Number(i.value) : i.value; });
+      return i;
+    };
+    const table = (rows, cols, make, max) => {
+      const box = el('div', { class: 'dash-rows' });
+      const draw = () => box.replaceChildren(
+        el('div', { class: 'dash-row head' }, cols.map((c) => el('span', {}, c)), el('span', {})),
+        rows.map((r, k) => el('div', { class: 'dash-row' }, make(r),
+          el('button', { type: 'button', class: 'danger', title: 'Remove', onclick: () => { rows.splice(k, 1); draw(); } }, '×'))),
+        rows.length < max ? el('button', { type: 'button', class: 'add', onclick: () => { rows.push({ label: 'New', value: 0 }); draw(); } }, '+ Add row') : null);
+      draw();
+      return box;
+    };
+    d.sensors = d.sensors || { title: '', unit: '', bars: [] };
+    const msg = el('p', { class: 'help' });
+    dlg.append(el('form', { method: 'dialog', onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        const saved = await this.adminFetch('/api/admin/farm/dashboard', { method: 'PUT', body: JSON.stringify(d) });
+        this.hud.setDashboard(saved);
+        this.status('Dashboard saved. Everyone now sees these figures.', 'ok');
+        close();
+      } catch (err) {
+        msg.textContent = `Save failed: ${err.message}`;
+      }
+    } },
+    el('h3', {}, 'Dashboard'),
+    el('p', { class: 'help' }, 'Figures shown over the 3D farm. Sensors can update them later through PATCH /api/farm/dashboard (see README).'),
+    el('div', { class: 'row' }, el('label', { class: 'field' }, 'Title', input(d, 'title')), el('label', { class: 'field' }, 'Subtitle', input(d, 'subtitle'))),
+    el('h4', {}, 'Weather'),
+    el('div', { class: 'row' },
+      el('label', { class: 'field' }, 'Condition', input(d.weather, 'condition')),
+      el('label', { class: 'field' }, 'Temp (°C)', input(d.weather, 'temp', 'number', { step: 'any' })),
+      el('label', { class: 'field' }, 'Humidity (%)', input(d.weather, 'humidity', 'number', { step: 'any' }))),
+    el('div', { class: 'row' },
+      el('label', { class: 'field' }, 'Light (lux)', input(d.weather, 'light', 'number', { step: 'any' })),
+      el('label', { class: 'field' }, 'Wind (km/h)', input(d.weather, 'wind', 'number', { step: 'any' }))),
+    el('h4', {}, 'Gauges (0–100 %)'),
+    table(d.gauges, ['Label', '%'], (r) => [input(r, 'label'), input(r, 'value', 'number', { min: 0, max: 100, step: 'any' })], 6),
+    el('h4', {}, 'Resources & output'),
+    table(d.kpis, ['Label', 'Value', 'Unit', 'Target'], (r) => [input(r, 'label'), input(r, 'value', 'number', { step: 'any' }),
+      input(r, 'unit'), input(r, 'target', 'number', { step: 'any' })], 12),
+    el('h4', {}, 'Sensor bars'),
+    el('div', { class: 'row' }, el('label', { class: 'field' }, 'Title', input(d.sensors, 'title')), el('label', { class: 'field' }, 'Unit', input(d.sensors, 'unit'))),
+    table(d.sensors.bars, ['Label', 'Value', 'Max'], (r) => [input(r, 'label'), input(r, 'value', 'number', { step: 'any' }),
+      input(r, 'max', 'number', { step: 'any' })], 16),
+    el('div', { class: 'row' }, el('button', { type: 'submit', class: 'btn' }, 'Save dashboard'),
+      el('button', { type: 'button', class: 'btn alt', onclick: close }, 'Cancel'),
+      el('button', { type: 'button', class: 'btn alt', onclick: () => { if (confirm('Reset the dashboard to the example figures?')) { close(); this.hud.dashboard = defaultDashboard(); this.openDashboardEditor(); } } }, 'Example figures')),
+    msg));
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   // ------------------------------------------------------------------ persistence
   async payload() {
-    return { version: 1, objects: this.farm.toJSON(), ground: await this.mask.encode() };
+    return { version: 1, objects: this.farm.toJSON(), ground: await this.mask.encode(), zones: this.hud.zones };
   }
 
   async save() {
@@ -739,6 +870,7 @@ export class Editor {
       if (!Array.isArray(data.objects)) throw new Error('not a farm layout');
       this.checkpoint();
       this.farm.load(data.objects);
+      if (Array.isArray(data.zones)) this.hud.setZones(data.zones);
       if (data.ground) await this.mask.decode(data.ground);
       this.maskSnapshot = this.mask.data.slice();
       this.clearSelection();
@@ -754,6 +886,7 @@ export class Editor {
     if (!confirm('Replace the current layout with the default farm? (You can undo.)')) return;
     this.checkpoint();
     this.farm.load(defaultLayout(this.mask));
+    this.hud.setZones(defaultZones());
     this.maskSnapshot = this.mask.data.slice();
     this.clearSelection();
     this.rebuildGrassSoon();

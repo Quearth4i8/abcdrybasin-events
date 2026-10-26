@@ -167,3 +167,52 @@ export function defaultLayout(mask) {
 
   return o.map((x) => ({ sx: 1, sy: 1, sz: 1, ...x }));
 }
+
+/** Zones of the default farm: map markers, tabs and guided-tour stops. */
+export function defaultZones() {
+  return [
+    { name: 'Farmhouse & office', icon: '🏠', x: -42, z: -45, h: 10, area: 1400, notes: 'Home, parking, garden and farm office.' },
+    { name: 'Poultry', icon: '🐔', x: 12, z: -44, h: 9, area: 840, notes: 'Two ventilated poultry houses with feed bins.' },
+    { name: 'Goats & sheep', icon: '🐐', x: 44, z: -42, h: 9, area: 840, notes: 'Open livestock shed and paddock.' },
+    { name: 'Vegetable beds', icon: '🥬', x: -25, z: -2, h: 7, area: 990, notes: 'Raised beds on drip irrigation.' },
+    { name: 'Aquaculture', icon: '🐟', x: 24, z: 0, h: 8, area: 1770, notes: 'Four fish ponds with paddle-wheel aerators.' },
+    { name: 'Greenhouses & hydroponics', icon: '🌱', x: -33, z: 40, h: 11, area: 690, notes: 'Glass greenhouse (tomatoes) and NFT hydroponic tunnel.' },
+    { name: 'Permaculture', icon: '🐝', x: -13, z: 41, h: 8, area: 520, notes: 'Herb spiral, corn plots, beehives and vine pergola.' },
+    { name: 'Agroforestry orchard', icon: '🌳', x: 33, z: 41, h: 10, area: 1650, notes: 'Olive, citrus, banana and date palm rows.' },
+    { name: 'Energy & water', icon: '☀️', x: -53, z: 10, h: 8, area: 410, notes: 'Solar pumping, rainwater tanks, water tower, compost.' },
+  ];
+}
+
+/** Default dashboard figures (edited by the admin in the farm editor, or pushed by sensors). */
+export function defaultDashboard() {
+  return {
+    title: 'Climate-smart farm',
+    subtitle: 'Integrated agriculture · Bizerte',
+    weather: { condition: 'Sunny', temp: 27, humidity: 58, light: 46000, wind: 12 },
+    gauges: [
+      { label: 'Water saved', value: 32 },
+      { label: 'Solar share', value: 68 },
+      { label: 'Yield vs. target', value: 87 },
+    ],
+    kpis: [
+      { label: 'Solar production', value: 182, unit: 'kWh/day', target: 220 },
+      { label: 'Energy use', value: 141, unit: 'kWh/day', target: 220 },
+      { label: 'Water use', value: 38, unit: 'm³/day', target: 60 },
+      { label: 'Rainwater stored', value: 52, unit: 'm³', target: 80 },
+      { label: 'Compost produced', value: 1.4, unit: 't/month', target: 2 },
+      { label: 'Yield estimate', value: 42, unit: 't/year', target: 48 },
+    ],
+    sensors: {
+      title: 'Soil & water moisture',
+      unit: '%',
+      bars: [
+        { label: 'Beds', value: 64, max: 100 },
+        { label: 'Orchard', value: 41, max: 100 },
+        { label: 'Corn', value: 52, max: 100 },
+        { label: 'Glasshouse', value: 71, max: 100 },
+        { label: 'NFT', value: 88, max: 100 },
+        { label: 'Ponds O₂', value: 76, max: 100 },
+      ],
+    },
+  };
+}
