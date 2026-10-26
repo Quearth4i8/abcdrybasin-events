@@ -8,6 +8,7 @@ const ROTOR = /_Rotor$/;
 
 export class Library {
   constructor(gltf, renderer) {
+    this.renderer = renderer;
     this.assets = new Map();
     this.layers = {};
     this.waterMaterials = new Set();
@@ -22,33 +23,70 @@ export class Library {
       node.position.set(0, 0, 0);
       node.rotation.set(0, 0, 0);
       node.scale.set(1, 1, 1);
-      node.updateMatrixWorld(true);
-      const parts = [], rotors = [];
-      node.traverse((o) => {
-        if (ROTOR.test(o.name)) rotors.push(o);
-        if (!o.isMesh) return;
-        const role = tuneMaterial(o.material, renderer);
-        if (role === 'water') this.waterMaterials.add(o.material);
-        let rotor = null;
-        for (let p = o; p && p !== node; p = p.parent) if (ROTOR.test(p.name)) rotor = p;
-        parts.push({ geometry: o.geometry, material: o.material, node: o, rotor, matrix: o.matrixWorld.clone(),
-          castShadow: role !== 'transparent' && role !== 'water' });
-      });
-      const box = new THREE.Box3().setFromObject(node);
-      this.assets.set(id, {
-        id, label: node.userData.label || id, category: node.userData.category || 'Other',
-        clearGrass: !!node.userData.clearGrass, template: node, parts, rotors, box,
+      this.register(id, node, {
+        label: node.userData.label || id, category: node.userData.category || 'Other', clearGrass: !!node.userData.clearGrass,
       });
     }
-    for (const m of this.waterMaterials) {
-      if (m.normalMap) {
-        m.normalMap.wrapS = m.normalMap.wrapT = THREE.RepeatWrapping;
-        m.normalScale.set(0.25, 0.25);
-      }
-    }
+    this.builtinLabels = new Map([...this.assets.values()].map((a) => [a.id, a.label]));
   }
+
+  /** Turn a template object (standing at the origin, front = +Z) into an instanceable asset. */
+  register(id, node, meta) {
+    node.updateMatrixWorld(true);
+    const parts = [], rotors = [];
+    node.traverse((o) => {
+      if (ROTOR.test(o.name)) rotors.push(o);
+      if (!o.isMesh) return;
+      const role = tuneMaterial(o.material, this.renderer);
+      if (role === 'water' && !this.waterMaterials.has(o.material)) {
+        this.waterMaterials.add(o.material);
+        if (o.material.normalMap) {
+          o.material.normalMap.wrapS = o.material.normalMap.wrapT = THREE.RepeatWrapping;
+          o.material.normalScale.set(0.25, 0.25);
+        }
+      }
+      let rotor = null;
+      for (let p = o; p && p !== node; p = p.parent) if (ROTOR.test(p.name)) rotor = p;
+      parts.push({ geometry: o.geometry, material: o.material, node: o, rotor, matrix: o.matrixWorld.clone(),
+        castShadow: role !== 'transparent' && role !== 'water' });
+    });
+    const box = new THREE.Box3().setFromObject(node);
+    const asset = { id, template: node, parts, rotors, box, ...meta };
+    this.assets.set(id, asset);
+    return asset;
+  }
+
+  /**
+   * Add a model uploaded in the editor (or listed in /farm/models/models.json). The model is
+   * centred on the origin, set on the ground and scaled by entry.scale; using the id of a
+   * built-in asset replaces it everywhere it is placed.
+   */
+  addModel(entry, gltf) {
+    const inner = gltf.scene;
+    inner.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(inner);
+    const c = b.getCenter(new THREE.Vector3());
+    inner.position.set(-c.x, -b.min.y, -c.z);
+    const node = new THREE.Group();
+    node.scale.setScalar(entry.scale || 1);
+    node.add(inner);
+    const wrapper = new THREE.Group();
+    wrapper.add(node);
+    const prev = this.assets.get(entry.id);
+    const asset = this.register(entry.id, wrapper, {
+      label: entry.label || prev?.label || entry.id,
+      category: entry.category || prev?.category || 'My models',
+      clearGrass: entry.clearGrass ?? prev?.clearGrass ?? true,
+      custom: true,
+    });
+    const size = asset.box.getSize(new THREE.Vector3());
+    asset.size = size;
+    return asset;
+  }
+
   categories() {
-    const order = ['Buildings', 'Crops', 'Water', 'Energy & water', 'Livestock', 'Trees', 'Walls & fences', 'Props'];
+    const order = ['My models', 'Buildings', 'Hydroponics', 'Crops', 'Water', 'Energy & water', 'Livestock', 'Trees',
+      'Walls & fences', 'Props'];
     const out = new Map(order.map((c) => [c, []]));
     for (const a of this.assets.values()) {
       if (!out.has(a.category)) out.set(a.category, []);
@@ -127,18 +165,32 @@ export class Farm {
     }
   }
 
+  /** Re-create the instanced meshes of an asset whose model was replaced, keeping its objects. */
+  refreshAsset(id) {
+    const b = this.batches.get(id);
+    if (!b) return;
+    for (const m of b.meshes) { this.scene.remove(m); m.dispose(); }
+    this.batches.delete(id);
+    for (const o of b.slots) this.attach(o);
+    this.pickables = [...this.batches.values()].flatMap((x) => x.meshes);
+  }
+
+  attach(o) {
+    const b = this.batch(o.asset);
+    if (b.slots.length >= b.capacity) this.grow(b, b.capacity * 2);
+    o.slot = b.slots.length;
+    b.slots.push(o);
+    this.write(b, o.slot);
+  }
+
   add(rec) {
     if (!this.lib.assets.has(rec.asset)) return null;
     const o = {
       uid: uid++, asset: rec.asset, x: +rec.x || 0, z: +rec.z || 0, ry: +rec.ry || 0,
       sx: rec.sx ?? 1, sy: rec.sy ?? 1, sz: rec.sz ?? 1, matrix: new THREE.Matrix4(),
     };
-    const b = this.batch(o.asset);
-    if (b.slots.length >= b.capacity) this.grow(b, b.capacity * 2);
-    o.slot = b.slots.length;
-    b.slots.push(o);
+    this.attach(o);
     this.objects.push(o);
-    this.write(b, o.slot);
     return o;
   }
 
@@ -201,7 +253,7 @@ export class Farm {
   animate(dt) {
     for (const b of this.batches.values()) {
       if (!b.asset.rotors.length || !b.slots.length) continue;
-      for (const r of b.asset.rotors) r.rotateY(dt * 2.2);
+      for (const r of b.asset.rotors) r.rotateY(dt * (r.userData.spin ?? 2.2));
       b.asset.template.updateMatrixWorld(true);
       b.asset.parts.forEach((part, i) => {
         if (!part.rotor) return;

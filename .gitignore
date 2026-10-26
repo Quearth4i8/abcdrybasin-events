@@ -5,3 +5,4 @@ data/uploads/
 .env
 tools/farm/out/
 data/farm-layout.json
+data/farm-models/

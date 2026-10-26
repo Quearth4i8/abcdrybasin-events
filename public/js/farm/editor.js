@@ -100,21 +100,134 @@ export class Editor {
       el('div', { class: 'group' }, this.ui.save, this.ui.menu), this.importInput);
 
     // palette
-    const search = el('input', { type: 'search', placeholder: 'Search objects…', class: 'search', oninput: (e) => this.filterPalette(e.target.value) });
-    const cats = [];
-    for (const [cat, assets] of this.lib.categories()) {
-      cats.push(el('details', { class: 'cat', open: true },
-        el('summary', {}, cat),
-        el('div', { class: 'items' }, assets.map((a) => el('button', { type: 'button', class: 'item', 'data-label': a.label.toLowerCase(),
-          title: `Place: ${a.label}`, onclick: () => this.startPlacing(a.id) }, a.label)))));
-    }
-    this.ui.palette = el('aside', { class: 'editor-panel palette' }, el('h3', {}, 'Add to the farm'), search, el('div', { class: 'cats' }, cats),
+    this.ui.search = el('input', { type: 'search', placeholder: 'Search objects…', class: 'search', oninput: (e) => this.filterPalette(e.target.value) });
+    this.ui.cats = el('div', { class: 'cats' });
+    this.ui.palette = el('aside', { class: 'editor-panel palette' }, el('h3', {}, 'Add to the farm'), this.ui.search,
+      el('button', { type: 'button', class: 'upload-btn', onclick: () => this.openModels() }, '⬆ Upload / manage 3D models'),
+      this.ui.cats,
       el('p', { class: 'help' }, 'Click an item, then click the ground to place it. R rotates, Shift+click keeps placing, Esc cancels.'));
+    this.renderPalette();
 
     this.ui.props = el('aside', { class: 'editor-panel props' });
     this.ui.status = el('div', { class: 'editor-status' });
     document.body.append(this.ui.toolbar, this.ui.palette, this.ui.props, this.ui.status);
     this.refreshPanels();
+  }
+
+  renderPalette() {
+    const cats = [];
+    for (const [cat, assets] of this.lib.categories()) {
+      cats.push(el('details', { class: 'cat', open: true },
+        el('summary', {}, cat),
+        el('div', { class: 'items' }, assets.map((a) => el('button', { type: 'button', class: `item ${a.custom ? 'custom' : ''}`,
+          'data-label': a.label.toLowerCase(), title: `Place: ${a.label}`, onclick: () => this.startPlacing(a.id) }, a.label)))));
+    }
+    this.ui.cats.replaceChildren(...cats);
+    this.filterPalette(this.ui.search.value);
+  }
+
+  // ------------------------------------------------------------------ custom 3D models
+  async openModels() {
+    const dlg = el('dialog', { class: 'models-dialog' });
+    const close = () => { dlg.close(); dlg.remove(); };
+    const builtins = [...this.lib.builtinLabels].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+    const file = el('input', { type: 'file', accept: '.glb,model/gltf-binary', required: true });
+    const label = el('input', { type: 'text', placeholder: 'e.g. NFT hydroponic rack', maxlength: 80 });
+    const category = el('input', { type: 'text', list: 'farm-cats', value: 'Hydroponics', maxlength: 40 });
+    const cats = el('datalist', { id: 'farm-cats' }, [...this.lib.categories().keys()].map((c) => el('option', { value: c })));
+    const replaces = el('select', {}, el('option', { value: '' }, '— no, add it as a new object —'),
+      builtins.map((a) => el('option', { value: a.id }, a.label)));
+    const scale = el('input', { type: 'number', min: 0.001, step: 'any', value: 1 });
+    const clear = el('input', { type: 'checkbox', checked: true });
+    const msg = el('p', { class: 'help' });
+    file.addEventListener('change', () => {
+      if (!label.value && file.files[0]) label.value = file.files[0].name.replace(/\.glb$/i, '').replace(/[_-]+/g, ' ');
+    });
+    const submit = el('button', { type: 'submit', class: 'btn' }, 'Upload');
+    const form = el('form', { method: 'dialog', onsubmit: async (e) => {
+      e.preventDefault();
+      const f = file.files[0];
+      if (!f) return;
+      submit.disabled = true;
+      msg.textContent = `Uploading ${(f.size / 1e6).toFixed(1)} MB…`;
+      const q = new URLSearchParams({ label: label.value || f.name, category: category.value || 'My models', scale: scale.value || 1,
+        clearGrass: clear.checked ? '1' : '0', replaces: replaces.value });
+      try {
+        const res = await fetch(`/api/admin/farm/models?${q}`, { method: 'POST', body: f, credentials: 'same-origin',
+          headers: { 'Content-Type': 'model/gltf-binary' } });
+        if (res.status === 401) throw new Error('log in as admin first (open /admin in another tab), then try again');
+        const entry = await res.json();
+        if (!res.ok) throw new Error(entry.error || res.statusText);
+        const asset = await this.loadModel(entry);
+        const s = asset.size;
+        msg.textContent = `Added “${asset.label}” (${s.x.toFixed(1)} × ${s.z.toFixed(1)} m, ${s.y.toFixed(1)} m tall). ` +
+          'If the size looks wrong, change its scale below.';
+        list.replaceChildren(...await this.modelRows());
+        if (!replaces.value) this.startPlacing(asset.id);
+      } catch (err) {
+        msg.textContent = `Upload failed: ${err.message}`;
+      } finally {
+        submit.disabled = false;
+      }
+    } },
+      el('h3', {}, 'Upload a 3D model'),
+      el('p', { class: 'help' }, 'Binary glTF (.glb) from Blender (File › Export › glTF 2.0, format “glTF Binary”), Sketchfab, etc. ',
+        'Metres, Y up, front facing +Z. It is centred and set on the ground automatically. Keep it light: ideally < 20 MB and < 300k triangles.'),
+      el('label', { class: 'field' }, 'File (.glb)', file),
+      el('label', { class: 'field' }, 'Name', label),
+      el('label', { class: 'field' }, 'Category', category, cats),
+      el('label', { class: 'field' }, 'Replace a built-in object (everywhere it is placed)', replaces),
+      el('div', { class: 'row' },
+        el('label', { class: 'field' }, 'Scale', scale),
+        el('label', { class: 'field check' }, clear, 'Remove grass under it')),
+      el('div', { class: 'row' }, submit, el('button', { type: 'button', class: 'btn alt', onclick: close }, 'Close')),
+      msg);
+    const list = el('div', { class: 'model-list' }, await this.modelRows());
+    dlg.append(form, el('h3', {}, 'Uploaded models'), list);
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
+  async modelRows() {
+    const models = await fetch('/api/farm/models', { cache: 'no-store' }).then((r) => r.json()).catch(() => []);
+    if (!models.length) return [el('p', { class: 'help' }, 'None yet.')];
+    return models.map((m) => {
+      const scale = el('input', { type: 'number', min: 0.001, step: 'any', value: m.scale, title: 'Scale (applies after reload)' });
+      return el('div', { class: 'model-row' },
+        el('span', {}, m.label, m.replaces ? el('small', {}, ` replaces ${this.lib.builtinLabels.get(m.replaces) || m.replaces}`) : null),
+        scale,
+        el('button', { type: 'button', onclick: async () => {
+          await this.adminFetch(`/api/admin/farm/models/${m.id}`, { method: 'PUT', body: JSON.stringify({ scale: +scale.value }) });
+          const asset = await this.loadModel({ ...m, scale: +scale.value });
+          this.status(`Rescaled “${asset.label}”`, 'ok');
+        } }, 'Apply'),
+        el('button', { type: 'button', class: 'danger', onclick: async () => {
+          if (!confirm(`Delete the model “${m.label}”? Placed copies disappear (or fall back to the built-in object) after a reload.`)) return;
+          await this.adminFetch(`/api/admin/farm/models/${m.id}`, { method: 'DELETE' });
+          this.status('Model deleted. Save your layout, then reload the page.', 'ok');
+          scale.closest('.model-row').remove();
+        } }, 'Delete'));
+    });
+  }
+
+  async adminFetch(url, opts) {
+    const res = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))).error || res.statusText;
+      this.status(res.status === 401 ? 'Log in as admin first (open /admin in another tab).' : err, 'error');
+      throw new Error(err);
+    }
+    return res.json();
+  }
+
+  /** Load an uploaded model into the library (replacing an asset with the same id) and redraw its copies. */
+  async loadModel(entry) {
+    const gltf = await this.gltfLoader.loadAsync(`/farm-models/${entry.file}`);
+    const asset = this.lib.addModel(entry, gltf);
+    this.farm.refreshAsset(entry.id);
+    this.renderPalette();
+    this.rebuildGrassSoon();
+    return asset;
   }
 
   filterPalette(q) {
@@ -311,6 +424,7 @@ export class Editor {
     const any = this.selection.size > 0 && this.tool === 'select';
     this.gizmo.enabled = any;
     this.gizmoHelper.visible = any;
+    if (!any) this.gizmo.axis = null;
     this.updateBoxes();
     this.updatePivot();
     this.refreshPanels();
@@ -550,7 +664,8 @@ export class Editor {
         return;
       }
       if (!down || e.button !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
-      if (this.gizmo.dragging || this.gizmo.axis) return;
+      // the gizmo keeps its last hovered axis after it is hidden: only defer to it while it is shown
+      if (this.gizmoHelper.visible && (this.gizmo.dragging || this.gizmo.axis)) return;
       if (this.tool === 'place') { this.moveGhost(this.groundPoint(e)); this.placeGhost(e.shiftKey); return; }
       if (this.tool !== 'select') return;
       this.groundPoint(e);

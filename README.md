@@ -74,6 +74,25 @@ agroforestry orchard (olive, citrus, banana, date palm).
 The saved layout is stored in `DATA_DIR/farm-layout.json` (served at `GET /api/farm`, saved with
 `PUT /api/admin/farm`). It is not part of the admin JSON backup; use *Export layout* in the editor.
 
+**Using your own 3D models.** Every object can be swapped for a better model, and new ones
+(hydroponic systems, machines…) can be added without touching code:
+
+1. Get or make the model and export it as **binary glTF (`.glb`)**: in Blender *File › Export ›
+   glTF 2.0*, format *glTF Binary*, with *+Y Up*. Use metres; the front should face +Z (Blender −Y).
+   Draco/meshopt/KTX2-compressed files from Sketchfab etc. work too.
+2. In the editor click **⬆ Upload / manage 3D models**, choose the file, a name and a category
+   (e.g. *Hydroponics*). Optionally pick **Replace a built-in object**: every placed copy of it
+   (and the default farm) then uses your model.
+3. The dialog shows the model's size in metres; fix the **Scale** if it was made in other units.
+   The model is centred and set on the ground automatically.
+
+Uploads are stored in `DATA_DIR/farm-models/` (served at `/farm-models/`, listed by
+`GET /api/farm/models`, max 80 MB each). Keep models light for the web (ideally < 20 MB and
+< 300k triangles): `node tools/farm/optimize.mjs in.glb out.glb` compresses one. Parts whose
+name ends in `_Rotor` spin (custom property `spin` = speed in rad/s). Models meant to ship with
+the code can go in `public/farm/models/` and be listed in `public/farm/models/models.json`
+(same fields as an upload: `id`, `label`, `category`, `file`, `scale`, `replaces`).
+
 **How it is built.**
 
 - `tools/farm/build_farm.py` — Blender script that generates the textures (color, roughness/metal,

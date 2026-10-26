@@ -807,7 +807,11 @@ FLAT = {
     "wool": ((0.85, 0.82, 0.72), 0.95, 0.0), "hoof": ((0.12, 0.10, 0.09), 0.6, 0.0),
     "fish": ((0.55, 0.57, 0.55), 0.3, 0.3), "hive_yellow": ((0.88, 0.72, 0.30), 0.55, 0.0),
     "car_red": ((0.55, 0.05, 0.05), 0.25, 0.4),
+    "pvc_gray": ((0.55, 0.56, 0.57), 0.4, 0.0), "frame_green": ((0.45, 0.80, 0.12), 0.4, 0.3),
+    "stainless": ((0.78, 0.79, 0.80), 0.25, 0.9), "wheel_red": ((0.60, 0.08, 0.07), 0.5, 0.0),
+    "led": ((0.55, 1.0, 0.45), 0.3, 0.0), "seedling": ((0.30, 0.78, 0.16), 0.5, 0.0),
 }
+EMISSIVE = {"led": 4.0}  # key -> emission strength
 
 MAT = {}
 
@@ -889,6 +893,10 @@ def make_materials(T):
     for key, (col, rough, metal) in FLAT.items():
         lin = tuple(c ** 2.2 for c in col)  # sRGB -> linear
         MAT[key] = make_flat_material(key, lin, rough, metal, 1.0 if key in ("glass", "fish_water") else 0.5)
+        if key in EMISSIVE:
+            bsdf = principled(MAT[key].node_tree)
+            bsdf.inputs["Emission Color"].default_value = (*lin, 1.0)
+            bsdf.inputs["Emission Strength"].default_value = EMISSIVE[key]
     MAT["greenhouse_film"].use_backface_culling = False
     water = make_flat_material("pond_water", (0.06, 0.10, 0.08), 0.03, 0.0, 1.0)
     nt = water.node_tree
@@ -2199,7 +2207,7 @@ def a_storage(c):
     mb.build("StorageShed", c)
 
 
-@asset("greenhouse", "Hydroponic greenhouse", "Crops")
+@asset("greenhouse", "Hydroponic greenhouse", "Hydroponics")
 def a_greenhouse(c):
     mb = MB()
     W, L = 9.0, 24.0
@@ -2251,6 +2259,162 @@ def a_feed_bin(c):
     mb.beam((0, 0, 1.2), (0, -3.0, 0.6), 0.1, 0.1, "galv")
     mb.build("FeedBin", c)
 
+
+# -- hydroponics -------------------------------------------------------------------
+
+def seedling(mb, M, rng):
+    h = rng.uniform(0.07, 0.11)
+    mb.tube([M @ Vector((0, 0, 0)), M @ Vector((0, 0, h))], [0.003, 0.003], 3, "seedling", smooth=False)
+    for s in (-1, 1):
+        a = rng.uniform(-0.3, 0.3)
+        d = Vector((s * math.cos(a), math.sin(a), 0.35)).normalized()
+        side = Vector((-d.y, d.x, 0)).normalized()
+        base = Vector((0, 0, h))
+        tip = base + d * 0.045
+        pts = [base, base + d * 0.02 + side * 0.016, tip, base + d * 0.02 - side * 0.016]
+        mb.face([M @ p for p in pts], "seedling", [(0.5, 0), (1, 0.5), (0.5, 1), (0, 0.5)])
+
+
+def net_cup(mb, M):
+    mb.lathe(M, [(0.0, -0.06), (0.022, -0.06), (0.03, 0.0), (0.038, 0.012), (0.0, 0.013)], 10, "poly_black")
+
+
+def nft_rack(c, name, plant):
+    """NFT (nutrient film technique) table: PVC pipes with net cups on a steel frame."""
+    mb = MB()
+    L, pipes, gap, z = 6.0, 6, 0.36, 0.95
+    r = 0.055
+    W = (pipes - 1) * gap
+    for x in (-W / 2 - 0.1, W / 2 + 0.1):  # frame: rails, legs and cross bars (slight slope for drainage)
+        mb.beam((x, -L / 2, z - r - 0.03), (x, L / 2, z - r + 0.02), 0.05, 0.05, "galv")
+        for y in np.linspace(-L / 2 + 0.2, L / 2 - 0.2, 4):
+            mb.beam((x, y, 0.0), (x, y, z - r - 0.03 + 0.05 * (y + L / 2) / L), 0.05, 0.05, "galv")
+    for y in np.linspace(-L / 2 + 0.2, L / 2 - 0.2, 4):
+        mb.beam((-W / 2 - 0.1, y, z - r - 0.03), (W / 2 + 0.1, y, z - r - 0.03), 0.04, 0.04, "galv")
+        mb.beam((-W / 2 - 0.1, y, 0.25), (W / 2 + 0.1, y, 0.25), 0.03, 0.03, "galv")
+    rng = random.Random(sum(map(ord, name)))
+    for i in range(pipes):
+        x = -W / 2 + i * gap
+        P = T_((x, -L / 2, z)) @ RX(-math.pi / 2)  # pipe axis along +Y
+        mb.lathe(P, [(r, 0.0), (r, L)], 18, "pvc")
+        for y0, sgn in ((-L / 2, -1), (L / 2, 1)):  # grey end caps
+            mb.lathe(T_((x, y0, z)) @ RX(-sgn * math.pi / 2), [(r + 0.008, -0.01), (r + 0.008, 0.05), (0.0, 0.052)], 18, "pvc_gray")
+        for y in np.arange(-L / 2 + 0.2, L / 2 - 0.1, 0.2):
+            M = T_((x, y, z + r - 0.004))
+            net_cup(mb, M)
+            plant(mb, M @ T_((0, 0, 0.012)) @ RZ(rng.uniform(0, 6.28)), rng)
+        # drain elbow at the front end down into the return manifold
+        mb.tube([Vector((x, -L / 2 - 0.05, z - 0.03)), Vector((x, -L / 2 - 0.12, z - 0.03)), Vector((x, -L / 2 - 0.12, 0.62))],
+                [0.022] * 3, 8, "pvc", smooth=False)
+        mb.lathe(T_((x, -L / 2 - 0.12, z - 0.1)), [(0.027, 0), (0.027, 0.06)], 8, "pvc_gray")
+        # feed line at the back end
+        mb.tube([Vector((x, L / 2 + 0.05, z + 0.02)), Vector((x, L / 2 + 0.15, z + 0.02)), Vector((x, L / 2 + 0.15, 0.4))],
+                [0.008] * 3, 5, "poly_black", smooth=False)
+    mb.beam((-W / 2 - 0.15, -L / 2 - 0.12, 0.6), (W / 2 + 0.6, -L / 2 - 0.12, 0.6), 0.05, 0.05, "pvc", grain=False)
+    mb.tube([Vector((W / 2 + 0.6, -L / 2 - 0.12, 0.6)), Vector((W / 2 + 0.6, -L / 2 - 0.12, 0.35)), Vector((W / 2 + 0.6, -L / 2 + 0.4, 0.35))],
+            [0.025] * 3, 8, "pvc", smooth=False)
+    mb.beam((-W / 2 - 0.15, L / 2 + 0.15, 0.4), (W / 2 + 0.6, L / 2 + 0.15, 0.4), 0.025, 0.025, "poly_black", grain=False)
+    mb.lathe(T_((W / 2 + 0.6, -L / 2 + 0.9, 0.0)), [(0.45, 0.0), (0.45, 0.6), (0.0, 0.62)], 18, "poly_black")  # reservoir
+    mb.box(T_((W / 2 + 0.6, -L / 2 + 0.9, 0.7)), (0.25, 0.2, 0.18), "pipe_blue")  # pump
+    mb.build(name, c)
+
+
+@asset("nft_seedlings", "NFT pipe rack (seedlings)", "Hydroponics")
+def a_nft_seedlings(c):
+    nft_rack(c, "NftSeedlings", lambda mb, M, rng: seedling(mb, M, rng))
+
+
+@asset("nft_lettuce", "NFT pipe rack (lettuce)", "Hydroponics")
+def a_nft_lettuce(c):
+    nft_rack(c, "NftLettuce", lambda mb, M, rng: lettuce(mb, M, "lettuce" if rng.random() < 0.75 else "lettuce_red", 0.95, rng))
+
+
+@asset("vertical_tower", "Vertical hydroponic tower", "Hydroponics", clear_grass=False)
+def a_tower(c):
+    mb = MB()
+    rng = random.Random(77)
+    H, r = 1.8, 0.11
+    mb.lathe(Matrix.Identity(4), [(0.32, 0.0), (0.32, 0.35), (0.12, 0.42), (0.0, 0.43)], 20, "pvc_gray")  # base tank
+    mb.lathe(Matrix.Identity(4), [(r, 0.4), (r, H)], 16, "pvc")
+    mb.lathe(T_((0, 0, H)), [(r + 0.01, -0.02), (r + 0.01, 0.04), (0.0, 0.05)], 16, "pvc_gray")
+    for k in range(7):
+        z = 0.55 + k * 0.18
+        for j in range(4):
+            a = j * math.pi / 2 + (k % 2) * math.pi / 4
+            d = Vector((math.cos(a), math.sin(a), 0))
+            M = T_(d * (r + 0.02) + Vector((0, 0, z))) @ frame(d * 0.7 + Vector((0, 0, 0.7)), Vector((0, 0, 1))).to_4x4() @ RY(math.pi / 2)
+            mb.lathe(M, [(0.0, -0.04), (0.035, -0.04), (0.035, 0.03), (0.0, 0.03)], 8, "pvc")
+            lettuce(mb, T_(d * (r + 0.06) + Vector((0, 0, z + 0.03))) @ RZ(rng.uniform(0, 6.28)), "lettuce" if rng.random() < 0.7 else "lettuce_red", 0.8, rng)
+    mb.build("VerticalTower", c)
+
+
+@asset("rotary_drum", "Rotary hydroponic garden", "Hydroponics")
+def a_rotary(c):
+    mb = MB()
+    R, D, zc = 0.85, 1.0, 1.08
+    # stainless tray on a green frame with casters
+    zb, zt = 0.32, 0.62
+    bw, bd, tw, td = 1.55, 1.25, 1.95, 1.6
+    corners_b = [(-bw / 2, -bd / 2), (bw / 2, -bd / 2), (bw / 2, bd / 2), (-bw / 2, bd / 2)]
+    corners_t = [(-tw / 2, -td / 2), (tw / 2, -td / 2), (tw / 2, td / 2), (-tw / 2, td / 2)]
+    mb.face([Vector((x, y, zb)) for x, y in corners_b], "stainless")
+    for i in range(4):
+        b0, b1 = corners_b[i], corners_b[(i + 1) % 4]
+        t0, t1 = corners_t[i], corners_t[(i + 1) % 4]
+        outer = [Vector((b0[0], b0[1], zb)), Vector((b1[0], b1[1], zb)), Vector((t1[0], t1[1], zt)), Vector((t0[0], t0[1], zt))]
+        mb.face(list(reversed(outer)), "stainless")  # inside of the tray
+        mb.face([p + (p - Vector((0, 0, p.z))).normalized() * 0.015 for p in outer], "stainless")  # outside skin
+    mb.box(T_((0, 0, zb - 0.06)), (tw, td, 0.08), "frame_green")
+    for x in (-tw / 2 + 0.12, tw / 2 - 0.12):
+        for y in (-td / 2 + 0.12, td / 2 - 0.12):
+            mb.box(T_((x, y, 0.2)), (0.05, 0.06, 0.08), "dark_metal")
+            mb.lathe(T_((x, y, 0.08)) @ RX(math.pi / 2), [(0.0, -0.02), (0.075, -0.02), (0.075, 0.02), (0.0, 0.02)], 12, "poly_black")
+    # support post and control box
+    mb.box(T_((tw / 2 - 0.15, td / 2 - 0.25, 0.95)), (0.12, 0.12, 1.3), "frame_green")
+    mb.box(T_((tw / 2 - 0.15, td / 2 - 0.12, 1.45)), (0.3, 0.12, 0.42), "pvc")
+    mb.box(T_((tw / 2 - 0.15, td / 2 - 0.05, 1.5)), (0.1, 0.02, 0.06), "pipe_blue")
+    # support rollers under the drum and the bearing bracket
+    for x in (-0.45, 0.45):
+        for y in (-0.3, 0.3):
+            M = T_((x, y, zc - R - 0.1)) @ RY(math.pi / 2)
+            mb.lathe(M, [(0.0, -0.03), (0.1, -0.03), (0.1, 0.03), (0.0, 0.03)], 14, "wheel_red")
+            mb.box(T_((x, y, zc - R - 0.2)), (0.08, 0.06, 0.2), "frame_green")
+    mb.beam((tw / 2 - 0.15, td / 2 - 0.25, zc), (0, D / 2 + 0.1, zc), 0.08, 0.08, "frame_green")
+    mb.build("RotaryBase", c)
+
+    # the drum turns slowly around its axis (local Z of the rotor), which points along Y
+    rotor = empty("Drum_Rotor", c, (0, 0, zc))
+    rotor.rotation_euler = (math.pi / 2, 0, 0)
+    rotor["spin"] = 0.15
+    rb = MB()
+    rng = random.Random(88)
+    rb.lathe(Matrix.Identity(4), [(R, -D / 2), (R, D / 2)], 40, "pvc", smooth=True)  # outer shell
+    rb.lathe(Matrix.Identity(4), [(R - 0.02, D / 2), (R - 0.02, -D / 2)], 40, "pvc", smooth=True)  # inner shell
+    for z in (-D / 2, D / 2):
+        rb.lathe(T_((0, 0, z)), [(R - 0.03, -0.02), (R + 0.04, -0.02), (R + 0.04, 0.02), (R - 0.03, 0.02), (R - 0.03, -0.02)], 40, "pvc",
+                 smooth=False)
+    rb.lathe(T_((0, 0, D / 2 - 0.01)), [(0.0, 0.0), (R - 0.02, 0.0)], 40, "pvc")  # back plate (towards the post)
+    rb.lathe(T_((0, 0, -D / 2 - 0.05)), [(0.065, 0.0), (0.065, D + 0.1)], 16, "led")  # LED grow-light bar on the axis
+    rb.lathe(T_((0, 0, -D / 2 - 0.08)), [(0.0, 0.0), (0.11, 0.0), (0.11, 0.06), (0.0, 0.06)], 16, "hoof")
+    rb.lathe(T_((0, 0, -D / 2 - 0.085)), [(0.0, 0.0), (0.07, 0.0)], 12, "comb_red")
+    rings, per_ring = 6, 4
+    for i in range(rings):
+        a = 2 * math.pi * i / rings
+        d = Vector((math.cos(a), math.sin(a), 0))
+        for j in range(per_ring):
+            z = -D / 2 + (j + 0.5) * D / per_ring
+            # pod sticking out through the shell
+            P = T_(d * R + Vector((0, 0, z))) @ frame(d, Vector((0, 0, 1))).to_4x4() @ RY(math.pi / 2)
+            rb.lathe(P, [(0.0, -0.05), (0.06, -0.05), (0.06, 0.17), (0.0, 0.17)], 10, "poly_black")
+            for k in range(3):
+                ang = 2 * math.pi * k / 3
+                rb.box(P @ T_((0.061 * math.cos(ang), 0.061 * math.sin(ang), 0.07)) @ RZ(ang), (0.004, 0.02, 0.16), "straw")
+            # plant growing inward towards the light
+            for k in range(6):
+                cpos = d * (R - 0.12 - rng.uniform(0, 0.18)) + Vector((rng.gauss(0, 0.05), rng.gauss(0, 0.05), z + rng.gauss(0, 0.05)))
+                n = (-d + Vector((rng.gauss(0, 0.5), rng.gauss(0, 0.5), rng.gauss(0, 0.5)))).normalized()
+                rb.card(cpos, n, rng.uniform(0.16, 0.24), "leaves", rot=rng.uniform(0, 6.28))
+    rb.build("Drum_RotorMesh", c, parent=rotor)
 
 # -- water -----------------------------------------------------------------------
 

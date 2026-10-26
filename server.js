@@ -14,10 +14,13 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SEED_FILE = path.join(__dirname, 'data', 'seed.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const FARM_FILE = path.join(DATA_DIR, 'farm-layout.json');
+const MODELS_DIR = path.join(DATA_DIR, 'farm-models'); // 3D models uploaded in the farm editor (.glb)
+const MODELS_FILE = path.join(MODELS_DIR, 'models.json');
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 const COOKIE = 'abcd_admin';
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(MODELS_DIR, { recursive: true });
 
 /* ---------------------------------------------------------------- storage */
 
@@ -222,6 +225,24 @@ app.get('/api/farm', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!fs.existsSync(FARM_FILE)) return res.status(204).end();
   res.type('application/json').send(fs.readFileSync(FARM_FILE, 'utf8'));
+});
+
+// Uploaded 3D models for the farm editor
+function readModels() {
+  try {
+    return JSON.parse(fs.readFileSync(MODELS_FILE, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+function writeModels(list) {
+  const tmp = `${MODELS_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
+  fs.renameSync(tmp, MODELS_FILE);
+}
+app.get('/api/farm/models', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(readModels());
 });
 
 app.get('/api/qr.svg', async (req, res) => {
@@ -470,11 +491,56 @@ admin.delete('/farm', (req, res) => {
   res.json({ ok: true });
 });
 
+// Upload a .glb model: body = the binary file, metadata in the query string.
+// `replaces` = id of a built-in asset to swap out (existing layouts then use the new model).
+admin.post('/farm/models', express.raw({ type: () => true, limit: '80mb' }), (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 20 || buf.toString('ascii', 0, 4) !== 'glTF') {
+    return res.status(400).json({ error: 'Please upload a binary glTF file (.glb)' });
+  }
+  const q = req.query;
+  const label = str(q.label, 80) || 'Custom model';
+  const category = str(q.category, 40) || 'My models';
+  const replaces = /^[a-z0-9_]{1,64}$/.test(q.replaces || '') ? q.replaces : '';
+  const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'model';
+  const id = replaces || `${slug}_${crypto.randomBytes(3).toString('hex')}`;
+  const file = `${id}-${crypto.randomBytes(4).toString('hex')}.glb`;
+  fs.writeFileSync(path.join(MODELS_DIR, file), buf);
+  const num = (v, def) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(Number(v), 1000) : def);
+  const list = readModels();
+  const old = list.find((m) => m.id === id);
+  if (old) fs.rmSync(path.join(MODELS_DIR, old.file), { force: true });
+  const entry = { id, label, category, file, scale: num(q.scale, 1), clearGrass: q.clearGrass !== '0', replaces: replaces || undefined,
+    uploadedAt: new Date().toISOString() };
+  writeModels([...list.filter((m) => m.id !== id), entry]);
+  res.json(entry);
+});
+admin.put('/farm/models/:id', (req, res) => {
+  const list = readModels();
+  const m = list.find((x) => x.id === req.params.id);
+  if (!m) return res.status(404).json({ error: 'Not found' });
+  if (req.body.label !== undefined) m.label = str(req.body.label, 80) || m.label;
+  if (req.body.category !== undefined) m.category = str(req.body.category, 40) || m.category;
+  if (Number(req.body.scale) > 0) m.scale = Math.min(Number(req.body.scale), 1000);
+  if (req.body.clearGrass !== undefined) m.clearGrass = bool(req.body.clearGrass);
+  writeModels(list);
+  res.json(m);
+});
+admin.delete('/farm/models/:id', (req, res) => {
+  const list = readModels();
+  const m = list.find((x) => x.id === req.params.id);
+  if (!m) return res.status(404).json({ error: 'Not found' });
+  fs.rmSync(path.join(MODELS_DIR, m.file), { force: true });
+  writeModels(list.filter((x) => x !== m));
+  res.json({ ok: true });
+});
+
 app.use('/api/admin', admin);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Static files
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+app.use('/farm-models', express.static(MODELS_DIR, { maxAge: '30d', immutable: true })); // file names change on every upload
 // three.js for the 3D farm page (/farm), served from node_modules — no CDN needed
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three'), { maxAge: '7d' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));

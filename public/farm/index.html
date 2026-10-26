@@ -82,6 +82,26 @@
     .props .swatch { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 8px; cursor: pointer; text-align: left; }
     .props .swatch.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .props .swatch i { width: 18px; height: 18px; border-radius: 4px; }
+    .palette .upload-btn { width: 100%; margin-bottom: 8px; border: 1px dashed var(--accent); background: rgba(11, 42, 82, 0.05);
+                           color: var(--accent); border-radius: 8px; padding: 7px 8px; cursor: pointer; font-weight: 500; }
+    .palette .item.custom { border-color: rgba(11, 42, 82, 0.35); background: #f3f7ff; }
+    .models-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 40px); border: 0; border-radius: 14px; padding: 20px;
+                     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); font-size: 13px; color: var(--ink); }
+    .models-dialog::backdrop { background: rgba(10, 20, 30, 0.35); }
+    .models-dialog h3 { margin: 0 0 8px; font-size: 15px; }
+    .models-dialog h3 + .help { margin-top: 0; }
+    .models-dialog .help { opacity: 0.75; line-height: 1.45; }
+    .models-dialog .field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+    .models-dialog .field.check { flex-direction: row; align-items: center; margin-top: 26px; }
+    .models-dialog input[type=text], .models-dialog input[type=number], .models-dialog select {
+      padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
+    .models-dialog .row { display: flex; gap: 12px; align-items: flex-start; }
+    .models-dialog form { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+    .model-row { display: grid; grid-template-columns: 1fr 70px auto auto; gap: 6px; align-items: center; padding: 6px 0; }
+    .model-row small { opacity: 0.6; }
+    .model-row input { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .model-row button { border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+    .model-row .danger { color: #b3261e; }
     .editor-status { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; z-index: 11;
                      background: var(--accent); color: #fff; font-size: 13px; max-width: calc(100vw - 32px); }
     .editor-status.show { display: block; }

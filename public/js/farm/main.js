@@ -2,6 +2,8 @@
 // lays it out from the saved layout (/api/farm) or the built-in default, and offers an editor.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -102,8 +104,26 @@ async function loadLayout() {
   return null;
 }
 
-const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const [gltf, saved] = await Promise.all([
+// Draco / KTX2 / meshopt so models exported from Blender, Sketchfab, etc. load as-is
+const gltfLoader = new GLTFLoader()
+  .setMeshoptDecoder(MeshoptDecoder)
+  .setDRACOLoader(new DRACOLoader().setDecoderPath('/vendor/three/examples/jsm/libs/draco/gltf/'))
+  .setKTX2Loader(new KTX2Loader().setTranscoderPath('/vendor/three/examples/jsm/libs/basis/').detectSupport(renderer));
+
+/** Custom models: committed ones (public/farm/models/models.json) + ones uploaded in the editor. */
+async function loadCustomModels() {
+  const lists = await Promise.all([
+    fetch('/farm/models/models.json').then((r) => (r.ok ? r.json() : [])).then((l) => l.map((m) => ({ ...m, url: `/farm/models/${m.file}` })), () => []),
+    fetch('/api/farm/models', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then((l) => l.map((m) => ({ ...m, url: `/farm-models/${m.file}` })), () => []),
+  ]);
+  const entries = lists.flat();
+  const loaded = await Promise.all(entries.map((m) => gltfLoader.loadAsync(m.url).then((g) => [m, g], (err) => {
+    console.warn(`model ${m.label} (${m.url}) failed to load`, err);
+    return null;
+  })));
+  return loaded.filter(Boolean);
+}
+const [gltf, saved, customModels] = await Promise.all([
   new Promise((resolve, reject) => gltfLoader.load('/farm/assets.glb', resolve, (e) => {
     if (e.total) loaderBar.style.width = `${(e.loaded / e.total) * 100}%`;
   }, reject)).catch((err) => {
@@ -112,9 +132,11 @@ const [gltf, saved] = await Promise.all([
     throw err;
   }),
   loadLayout(),
+  loadCustomModels(),
 ]);
 
 lib = new Library(gltf, renderer);
+for (const [entry, g] of customModels) lib.addModel(entry, g);
 scene.add(createTerrain(lib.layers, mask));
 farm = new Farm(scene, lib);
 grass = new Grass(scene, HIGH, Number(params.get('grass')) || undefined);
@@ -146,7 +168,7 @@ if (await canEdit()) {
   editBtn.addEventListener('click', async () => {
     if (!editor) {
       const { Editor } = await import('./editor.js');
-      editor = new Editor({ scene, camera, renderer, controls, farm, lib, mask, rebuildGrass });
+      editor = new Editor({ scene, camera, renderer, controls, farm, lib, mask, rebuildGrass, gltfLoader });
     }
     editor.setActive(!editor.active);
     editBtn.textContent = editor.active ? 'Exit editor' : 'Edit farm';
