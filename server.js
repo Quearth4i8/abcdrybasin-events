@@ -414,7 +414,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+  // Express 5 passes listen errors (e.g. port already in use) here instead of throwing
+  if (err) {
+    console.error(err.code === 'EADDRINUSE'
+      ? `Port ${PORT} is already in use by another program. Pick another port, e.g. set PORT=3001.`
+      : `Could not start the server: ${err.message}`);
+    process.exit(1);
+  }
   console.log(`ABCDryBASIN events site running on http://localhost:${PORT}`);
   console.log(`Admin panel: http://localhost:${PORT}/admin`);
   if (db.admin.isDefault) console.log('Default admin login: admin / admin123 (change it in Admin > Account)');
