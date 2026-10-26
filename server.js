@@ -145,8 +145,17 @@ function cleanSession(b) {
     speaker: str(b.speaker, 300)
   };
 }
+// Logo height in px; null means "use the site's default size"
+const size = (v) => {
+  const n = Math.round(Number(v));
+  return v === null || v === '' || v === undefined || !Number.isFinite(n) ? null : Math.min(300, Math.max(16, n));
+};
 function cleanPartner(b) {
-  return { name: str(b.name, 200), logo: str(b.logo, 500), url: str(b.url, 500), header: bool(b.header), footer: bool(b.footer) };
+  return {
+    name: str(b.name, 200), logo: str(b.logo, 500), url: str(b.url, 500),
+    header: bool(b.header), footer: bool(b.footer),
+    headerSize: size(b.headerSize), footerSize: size(b.footerSize)
+  };
 }
 
 function reorder(list, ids) {

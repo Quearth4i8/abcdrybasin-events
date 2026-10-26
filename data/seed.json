@@ -15,59 +15,289 @@
     "showQr": true
   },
   "features": [
-    { "id": "f1", "title": "Smart Solutions", "subtitle": "Innovative Climate Adaptation" },
-    { "id": "f2", "title": "Water Efficient", "subtitle": "Save Every Drop" },
-    { "id": "f3", "title": "Sustainable Future", "subtitle": "Building Better Tomorow" },
-    { "id": "f4", "title": "Knowledge Sharing", "subtitle": "Research and Partnerships" }
+    {
+      "id": "f1",
+      "title": "Smart Solutions",
+      "subtitle": "Innovative Climate Adaptation"
+    },
+    {
+      "id": "f2",
+      "title": "Water Efficient",
+      "subtitle": "Save Every Drop"
+    },
+    {
+      "id": "f3",
+      "title": "Sustainable Future",
+      "subtitle": "Building Better Tomorow"
+    },
+    {
+      "id": "f4",
+      "title": "Knowledge Sharing",
+      "subtitle": "Research and Partnerships"
+    }
   ],
   "days": [
     {
       "id": "d1",
       "title": "Day 1: Monday 14 December 2026",
       "sessions": [
-        { "id": "s1", "type": "session", "start": "09:00", "end": "09:30", "title": "Registration", "speaker": "" },
-        { "id": "s2", "type": "session", "start": "09:30", "end": "09:45", "title": "welcome and Opening", "speaker": "Béchir Béjaoui, INSTM" },
-        { "id": "s3", "type": "session", "start": "09:45", "end": "10:15", "title": "ABCDryBASIN : objectives", "speaker": "Amin Shaban, LCWE" },
-        { "id": "s4", "type": "session", "start": "10:15", "end": "10:45", "title": "Climate services for drought resilience in the Ichkeul Watershed", "speaker": "Micha Werner, IHE" },
-        { "id": "s5", "type": "break", "start": "10:45", "end": "11:15", "title": "COFFEE BREAK & NETWORKING", "speaker": "" },
-        { "id": "s6", "type": "session", "start": "11:15", "end": "12:30", "title": "APWRS Platform: Presentation and Interactive Demonstration", "speaker": "Project Team, INSTM" },
-        { "id": "s7", "type": "break", "start": "12:30", "end": "13:45", "title": "LUNCH & NETWORKING", "speaker": "" },
-        { "id": "s8", "type": "session", "start": "13:45", "end": "15:00", "title": "Practical Workshop: Applying Climate Smart Tools to Agricultural Decision-Making", "speaker": "" },
-        { "id": "s9", "type": "session", "start": "15:00", "end": "16:00", "title": "Discussion with Farmers: Needs, Expectations and Challenges", "speaker": "" }
+        {
+          "id": "s1",
+          "type": "session",
+          "start": "09:00",
+          "end": "09:30",
+          "title": "Registration",
+          "speaker": ""
+        },
+        {
+          "id": "s2",
+          "type": "session",
+          "start": "09:30",
+          "end": "09:45",
+          "title": "welcome and Opening",
+          "speaker": "Béchir Béjaoui, INSTM"
+        },
+        {
+          "id": "s3",
+          "type": "session",
+          "start": "09:45",
+          "end": "10:15",
+          "title": "ABCDryBASIN : objectives",
+          "speaker": "Amin Shaban, LCWE"
+        },
+        {
+          "id": "s4",
+          "type": "session",
+          "start": "10:15",
+          "end": "10:45",
+          "title": "Climate services for drought resilience in the Ichkeul Watershed",
+          "speaker": "Micha Werner, IHE"
+        },
+        {
+          "id": "s5",
+          "type": "break",
+          "start": "10:45",
+          "end": "11:15",
+          "title": "COFFEE BREAK & NETWORKING",
+          "speaker": ""
+        },
+        {
+          "id": "s6",
+          "type": "session",
+          "start": "11:15",
+          "end": "12:30",
+          "title": "APWRS Platform: Presentation and Interactive Demonstration",
+          "speaker": "Project Team, INSTM"
+        },
+        {
+          "id": "s7",
+          "type": "break",
+          "start": "12:30",
+          "end": "13:45",
+          "title": "LUNCH & NETWORKING",
+          "speaker": ""
+        },
+        {
+          "id": "s8",
+          "type": "session",
+          "start": "13:45",
+          "end": "15:00",
+          "title": "Practical Workshop: Applying Climate Smart Tools to Agricultural Decision-Making",
+          "speaker": ""
+        },
+        {
+          "id": "s9",
+          "type": "session",
+          "start": "15:00",
+          "end": "16:00",
+          "title": "Discussion with Farmers: Needs, Expectations and Challenges",
+          "speaker": ""
+        }
       ]
     },
     {
       "id": "d2",
       "title": "Day 2: Tuesday 15 December 2026",
       "sessions": [
-        { "id": "s10", "type": "session", "start": "09:00", "end": "09:30", "title": "Registration", "speaker": "" },
-        { "id": "s11", "type": "session", "start": "09:30", "end": "10:15", "title": "Startup 1 : pitch", "speaker": "" },
-        { "id": "s12", "type": "session", "start": "10:15", "end": "11:00", "title": "Startup 2 : pitch", "speaker": "" },
-        { "id": "s13", "type": "break", "start": "11:00", "end": "11:30", "title": "COFFEE BREAK & NETWORKING", "speaker": "" },
-        { "id": "s14", "type": "session", "start": "11:30", "end": "12:15", "title": "Startup 3 pitch", "speaker": "" },
-        { "id": "s15", "type": "session", "start": "12:15", "end": "13:00", "title": "Startup 4 pitch", "speaker": "" },
-        { "id": "s16", "type": "break", "start": "13:00", "end": "14:15", "title": "LUNCH & NETWORKING", "speaker": "" },
-        { "id": "s17", "type": "session", "start": "14:15", "end": "15:00", "title": "Startup 5 pitch", "speaker": "" },
-        { "id": "s18", "type": "session", "start": "15:00", "end": "16:00", "title": "Collaborative Discussion and Future Opportunities", "speaker": "" }
+        {
+          "id": "s10",
+          "type": "session",
+          "start": "09:00",
+          "end": "09:30",
+          "title": "Registration",
+          "speaker": ""
+        },
+        {
+          "id": "s11",
+          "type": "session",
+          "start": "09:30",
+          "end": "10:15",
+          "title": "Startup 1 : pitch",
+          "speaker": ""
+        },
+        {
+          "id": "s12",
+          "type": "session",
+          "start": "10:15",
+          "end": "11:00",
+          "title": "Startup 2 : pitch",
+          "speaker": ""
+        },
+        {
+          "id": "s13",
+          "type": "break",
+          "start": "11:00",
+          "end": "11:30",
+          "title": "COFFEE BREAK & NETWORKING",
+          "speaker": ""
+        },
+        {
+          "id": "s14",
+          "type": "session",
+          "start": "11:30",
+          "end": "12:15",
+          "title": "Startup 3 pitch",
+          "speaker": ""
+        },
+        {
+          "id": "s15",
+          "type": "session",
+          "start": "12:15",
+          "end": "13:00",
+          "title": "Startup 4 pitch",
+          "speaker": ""
+        },
+        {
+          "id": "s16",
+          "type": "break",
+          "start": "13:00",
+          "end": "14:15",
+          "title": "LUNCH & NETWORKING",
+          "speaker": ""
+        },
+        {
+          "id": "s17",
+          "type": "session",
+          "start": "14:15",
+          "end": "15:00",
+          "title": "Startup 5 pitch",
+          "speaker": ""
+        },
+        {
+          "id": "s18",
+          "type": "session",
+          "start": "15:00",
+          "end": "16:00",
+          "title": "Collaborative Discussion and Future Opportunities",
+          "speaker": ""
+        }
       ]
     },
     {
       "id": "d3",
       "title": "Day 3: Thursday 16 December 2026",
       "sessions": [
-        { "id": "s19", "type": "session", "start": "09:00", "end": "11:00", "title": "Closed Meeting", "speaker": "" }
+        {
+          "id": "s19",
+          "type": "session",
+          "start": "09:00",
+          "end": "11:00",
+          "title": "Closed Meeting",
+          "speaker": ""
+        }
       ]
     }
   ],
   "partners": [
-    { "id": "p1", "name": "ABCDryBASIN", "logo": "/assets/abcdrybasin.png", "url": "", "header": true, "footer": false },
-    { "id": "p2", "name": "DGRE – Direction Générale des Ressources en Eau", "logo": "/assets/dgre.png", "url": "", "header": false, "footer": true },
-    { "id": "p3", "name": "INSTM", "logo": "/assets/instm.png", "url": "", "header": true, "footer": true },
-    { "id": "p4", "name": "IRESA", "logo": "/assets/iresa.png", "url": "", "header": false, "footer": true },
-    { "id": "p5", "name": "INAT", "logo": "/assets/inat.png", "url": "", "header": false, "footer": true },
-    { "id": "p6", "name": "CERTE", "logo": "/assets/certe.png", "url": "", "header": false, "footer": true },
-    { "id": "p7", "name": "CRDA Bizerte", "logo": "/assets/crda-bizerte.png", "url": "", "header": false, "footer": true },
-    { "id": "p8", "name": "UNESCO IHE Delft", "logo": "/assets/ihe-delft.png", "url": "", "header": true, "footer": true },
-    { "id": "p9", "name": "The Lebanese Center for Water and Environment", "logo": "/assets/lcwe.png", "url": "", "header": true, "footer": true }
+    {
+      "id": "p1",
+      "name": "ABCDryBASIN",
+      "logo": "/assets/abcdrybasin.png",
+      "url": "",
+      "header": true,
+      "footer": false,
+      "headerSize": 110,
+      "footerSize": null
+    },
+    {
+      "id": "p2",
+      "name": "DGRE – Direction Générale des Ressources en Eau",
+      "logo": "/assets/dgre.png",
+      "url": "",
+      "header": false,
+      "footer": true,
+      "headerSize": null,
+      "footerSize": 72
+    },
+    {
+      "id": "p3",
+      "name": "INSTM",
+      "logo": "/assets/instm.png",
+      "url": "",
+      "header": true,
+      "footer": true,
+      "headerSize": 100,
+      "footerSize": 72
+    },
+    {
+      "id": "p4",
+      "name": "IRESA",
+      "logo": "/assets/iresa.png",
+      "url": "",
+      "header": false,
+      "footer": true,
+      "headerSize": null,
+      "footerSize": 52
+    },
+    {
+      "id": "p5",
+      "name": "INAT",
+      "logo": "/assets/inat.png",
+      "url": "",
+      "header": false,
+      "footer": true,
+      "headerSize": null,
+      "footerSize": 72
+    },
+    {
+      "id": "p6",
+      "name": "CERTE",
+      "logo": "/assets/certe.png",
+      "url": "",
+      "header": false,
+      "footer": true,
+      "headerSize": null,
+      "footerSize": 62
+    },
+    {
+      "id": "p7",
+      "name": "CRDA Bizerte",
+      "logo": "/assets/crda-bizerte.png",
+      "url": "",
+      "header": false,
+      "footer": true,
+      "headerSize": null,
+      "footerSize": 44
+    },
+    {
+      "id": "p8",
+      "name": "UNESCO IHE Delft",
+      "logo": "/assets/ihe-delft.png",
+      "url": "",
+      "header": true,
+      "footer": true,
+      "headerSize": 62,
+      "footerSize": 46
+    },
+    {
+      "id": "p9",
+      "name": "The Lebanese Center for Water and Environment",
+      "logo": "/assets/lcwe.png",
+      "url": "",
+      "header": true,
+      "footer": true,
+      "headerSize": 100,
+      "footerSize": 66
+    }
   ]
 }

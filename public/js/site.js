@@ -44,12 +44,14 @@
       el('li', { class: 'feature reveal' }, el('h3', { text: f.title }), el('p', { text: f.subtitle }))));
 
     // Logos
-    const logo = (p) => {
+    // Per-logo height set in the admin (null = default size from the stylesheet)
+    const logo = (p, size) => {
       const img = el('img', { src: p.logo, alt: p.name, title: p.name, loading: 'lazy' });
+      if (size) img.style.cssText = `--h:${size}px;--mw:100%`;
       return p.url ? el('a', { href: safeUrl(p.url), target: '_blank', rel: 'noopener' }, img) : el('span', {}, img);
     };
-    $('#partners').replaceChildren(...data.partners.filter((p) => p.footer && p.logo).map(logo));
-    $('#headerLogos').replaceChildren(...data.partners.filter((p) => p.header && p.logo).map(logo));
+    $('#partners').replaceChildren(...data.partners.filter((p) => p.footer && p.logo).map((p) => logo(p, p.footerSize)));
+    $('#headerLogos').replaceChildren(...data.partners.filter((p) => p.header && p.logo).map((p) => logo(p, p.headerSize)));
 
     // Program
     $('#dayChips').replaceChildren(...data.days.map((d) =>

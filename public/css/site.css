@@ -135,7 +135,7 @@ main { padding: clamp(16px, 4vw, 56px) 16px; display: grid; gap: clamp(28px, 5vw
   padding: 26px 28px 44px;
 }
 .partner-strip a, .partner-strip span { display: block; }
-.partner-strip img { height: 64px; width: auto; max-width: 200px; object-fit: contain; transition: transform .3s var(--ease), filter .3s; }
+.partner-strip img { height: calc(var(--h, 64px) * var(--logo-scale, 1)); width: auto; max-width: var(--mw, 200px); object-fit: contain; transition: transform .3s var(--ease), filter .3s; }
 .partner-strip img:hover { transform: translateY(-4px) scale(1.05); }
 .poster-wave { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 34px; fill: var(--wave); z-index: 1; }
 
@@ -144,7 +144,7 @@ main { padding: clamp(16px, 4vw, 56px) 16px; display: grid; gap: clamp(28px, 5vw
 /* ---------------- program (page 1 of the pdf) ---------------- */
 .program { padding: 26px clamp(18px, 5vw, 60px) 56px; font-family: 'Questrial', 'Poppins', sans-serif; }
 .program-logos { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 0 0 6px; }
-.program-logos img { height: 100px; width: auto; max-width: 240px; object-fit: contain; transition: transform .3s var(--ease); }
+.program-logos img { height: calc(var(--h, 100px) * var(--logo-scale, 1)); width: auto; max-width: var(--mw, 240px); object-fit: contain; transition: transform .3s var(--ease); }
 .program-logos img:hover { transform: translateY(-3px); }
 .program-title { text-align: center; font-weight: 400; color: var(--blue); font-size: clamp(26px, 4.4vw, 40px); letter-spacing: 1.5px; margin: 26px 0 18px; }
 
@@ -206,10 +206,8 @@ main { padding: clamp(16px, 4vw, 56px) 16px; display: grid; gap: clamp(28px, 5vw
   .facts { grid-template-columns: 1fr; gap: 18px; }
   .register { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 30px 16px 6px; }
   .register-mail { justify-self: center; }
-  .partner-strip { justify-content: center; padding: 22px 16px 44px; }
-  .partner-strip img { height: 58px; }
-  .program-logos { justify-content: center; }
-  .program-logos img { height: 64px; }
+  .partner-strip { justify-content: center; padding: 22px 16px 44px; --logo-scale: .8; }
+  .program-logos { justify-content: center; --logo-scale: .62; }
   .slot { grid-template-columns: 1fr; gap: 2px; }
   .slot-time { font-size: 16px; }
   .slot-title { font-size: 17px; }

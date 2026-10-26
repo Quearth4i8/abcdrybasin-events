@@ -490,10 +490,87 @@
         toggle('header', 'Program header', p.header, (e) => act(() => api('PUT', `/api/admin/partners/${p.id}`, { header: e.target.checked }), 'Updated').catch(() => {})),
         toggle('footer', 'Poster footer', p.footer, (e) => act(() => api('PUT', `/api/admin/partners/${p.id}`, { footer: e.target.checked }), 'Updated').catch(() => {}))))));
     sortable(grid, '.partner', (ids) => act(() => api('POST', '/api/admin/partners-order', { ids }), 'Order updated').catch(() => {}));
-    return h('div', { class: 'card' },
+    return [logoSizes(), h('div', { class: 'card' },
       h('div', { class: 'card-head' }, h('h2', { text: 'Partner logos' }), h('p', { class: 'muted', text: 'Drag cards to change the order logos appear in.' }),
         h('div', { class: 'actions' }, h('button', { class: 'btn btn-primary', type: 'button', onclick: () => editPartner(null) }, icon('plus'), 'Add partner'))),
-      content.partners.length ? grid : h('p', { class: 'empty-row', text: 'No partners yet.' }));
+      content.partners.length ? grid : h('p', { class: 'empty-row', text: 'No partners yet.' }))];
+  }
+
+  // Mirrors the public site's logo rows (widths, gaps, default sizes, phone scaling) so the preview is faithful.
+  const LOGO_ROWS = {
+    header: { label: 'Program header', key: 'headerSize', flag: 'header', def: 100, maxW: 240, desktop: 860, phone: 322, phoneScale: 0.62 },
+    footer: { label: 'Poster footer', key: 'footerSize', flag: 'footer', def: 64, maxW: 200, desktop: 924, phone: 326, phoneScale: 0.8 }
+  };
+  let logoTab = 'header';
+  let logoDevice = 'desktop';
+
+  function logoSizes() {
+    const row = LOGO_ROWS[logoTab];
+    const items = content.partners.filter((p) => p[row.flag] && p.logo);
+    const phone = logoDevice === 'phone';
+    const scale = phone ? row.phoneScale : 1;
+
+    const previewImg = (p) => {
+      const img = h('img', { src: p.logo, alt: p.name, title: p.name });
+      const apply = (size) => {
+        img.style.height = `${(size || row.def) * scale}px`;
+        img.style.maxWidth = size ? '100%' : `${row.maxW}px`;
+      };
+      apply(p[row.key]);
+      img.applySize = apply;
+      return img;
+    };
+    const imgs = new Map(items.map((p) => [p.id, previewImg(p)]));
+    const stage = h('div', { class: `pv-stage pv-${logoTab} ${phone ? 'pv-phone' : ''}`, style: `width:${phone ? row.phone : row.desktop}px` }, [...imgs.values()]);
+    const frame = h('div', { class: 'pv-frame' }, stage);
+    // Scale the stage down when the admin column is narrower than the real site row
+    const fit = () => {
+      const k = Math.min(1, (frame.clientWidth - 2) / stage.offsetWidth);
+      stage.style.transform = `scale(${k})`;
+      frame.style.height = `${stage.offsetHeight * k + 2}px`;
+    };
+    new ResizeObserver(fit).observe(frame);
+    stage.addEventListener('load', fit, true);
+
+    const save = async (p, value) => {
+      try {
+        const saved = await api('PUT', `/api/admin/partners/${p.id}`, { [row.key]: value });
+        p[row.key] = saved[row.key];
+      } catch (e) { toast(e.message, 'error'); }
+    };
+
+    const controls = items.map((p) => {
+      const current = p[row.key] || row.def;
+      const range = h('input', { type: 'range', min: 16, max: 240, value: current, 'aria-label': `${p.name} size` });
+      const num = h('input', { type: 'number', min: 16, max: 300, value: current, class: 'size-num' });
+      const auto = h('button', { class: 'btn btn-ghost btn-sm', type: 'button', title: 'Back to the default size' }, 'Auto');
+      const badge = h('span', { class: 'size-auto', text: 'auto', hidden: !!p[row.key] });
+      const preview = (v) => { imgs.get(p.id).applySize(v); range.value = v || row.def; num.value = v || row.def; badge.hidden = !!v; fit(); };
+      range.addEventListener('input', () => preview(+range.value));
+      range.addEventListener('change', () => save(p, +range.value));
+      num.addEventListener('input', () => { if (num.value >= 16) preview(+num.value); });
+      num.addEventListener('change', () => { const v = Math.min(300, Math.max(16, +num.value || row.def)); preview(v); save(p, v); });
+      auto.addEventListener('click', () => { preview(null); save(p, null); });
+      return h('div', { class: 'size-row' },
+        h('div', { class: 'size-thumb' }, h('img', { src: p.logo, alt: '' })),
+        h('div', { class: 'size-name' }, h('strong', { text: p.name }), badge),
+        range, h('div', { class: 'size-val' }, num, h('span', { text: 'px' })), auto);
+    });
+
+    const seg = (name, options, value, onPick) => h('div', { class: 'segmented' }, options.map(([v, label]) =>
+      h('label', {}, h('input', { type: 'radio', name, value: v, checked: v === value, onchange: () => { onPick(v); render(); } }), h('span', { text: label }))));
+
+    return h('div', { class: 'card' },
+      h('div', { class: 'card-head' },
+        h('h2', { text: 'Logo sizes' }),
+        h('p', { class: 'muted', text: 'Drag a slider — the preview updates live and saves when you let go.' }),
+        h('div', { class: 'actions' },
+          seg('logoTab', [['header', 'Program header'], ['footer', 'Poster footer']], logoTab, (v) => { logoTab = v; }),
+          seg('logoDevice', [['desktop', 'Desktop'], ['phone', 'Phone']], logoDevice, (v) => { logoDevice = v; }))),
+      items.length
+        ? [frame, h('div', { class: 'size-list' }, controls),
+          h('div', { class: 'form-actions' }, h('a', { class: 'btn btn-ghost btn-sm', href: logoTab === 'header' ? '/#program' : '/#partners', target: '_blank', rel: 'noopener' }, 'See it on the live site ↗'))]
+        : h('p', { class: 'empty-row', text: `No logos in the ${row.label.toLowerCase()} yet — switch one on below.` }));
   }
 
   function editPartner(p) {
