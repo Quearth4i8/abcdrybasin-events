@@ -29,7 +29,11 @@
 
     // Registration
     const reg = safeUrl(event.registerUrl);
-    $('#registerUrl').textContent = event.registerUrl || '';
+    // Show a short button label instead of a long URL; an empty label falls back to the URL itself
+    const regText = event.registerText ?? 'Register now';
+    $('#registerUrl').textContent = regText || event.registerUrl || '';
+    $('#registerUrl').classList.toggle('is-button', !!regText);
+    $('#registerUrl').hidden = !event.registerUrl;
     $('#registerUrl').href = reg;
     $('#navRegister').href = reg;
     $('#navRegister').hidden = !event.registerUrl;

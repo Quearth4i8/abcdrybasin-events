@@ -11,6 +11,7 @@
     "heroImage": "/assets/hero.jpg",
     "registerLabel": "Register Here :",
     "registerUrl": "https://example.com/abcdrybasin",
+    "registerText": "Register now",
     "email": "abcdrybassin@gmail.com",
     "showQr": true
   },

@@ -128,7 +128,7 @@ const str = (v, max = 2000) => (v === undefined || v === null ? '' : String(v).s
 const bool = (v) => v === true || v === 'true' || v === 1;
 
 const EVENT_FIELDS = ['logo', 'seminarTitle', 'title', 'programTitle', 'dateLabel', 'dateSub', 'timeLabel',
-  'location', 'heroImage', 'registerLabel', 'registerUrl', 'email'];
+  'location', 'heroImage', 'registerLabel', 'registerUrl', 'registerText', 'email'];
 
 function cleanFeature(b) {
   return { title: str(b.title, 120), subtitle: str(b.subtitle, 200) };

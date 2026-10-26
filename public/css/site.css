@@ -123,6 +123,16 @@ main { padding: clamp(16px, 4vw, 56px) 16px; display: grid; gap: clamp(28px, 5vw
 .register-text { display: flex; flex-direction: column; font-size: 18px; }
 .register-url { font-family: Georgia, 'Times New Roman', serif; font-size: clamp(16px, 2vw, 21px); color: #111; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color .2s, color .2s; word-break: break-all; }
 .register-url:hover { color: var(--blue); border-color: currentColor; }
+.register-url.is-button {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; margin-top: 8px;
+  font: 600 clamp(15px, 1.8vw, 18px) 'Poppins', sans-serif; color: #fff; word-break: normal;
+  padding: 12px 24px; border: 0; border-radius: 999px;
+  background: linear-gradient(135deg, #1f6aa8, #0b2a52); box-shadow: 0 12px 26px -12px rgba(31, 106, 168, .9);
+  transition: transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.register-url.is-button::after { content: '→'; transition: transform .2s var(--ease); }
+.register-url.is-button:hover { color: #fff; transform: translateY(-2px); box-shadow: 0 16px 30px -12px rgba(31, 106, 168, 1); }
+.register-url.is-button:hover::after { transform: translateX(4px); }
 .qr { width: 104px; height: 104px; border-radius: 10px; transition: transform .3s var(--ease); background: #fff; }
 .qr:hover { transform: scale(1.6); box-shadow: 0 10px 30px rgba(0, 0, 0, .2); }
 .register-mail { justify-self: end; display: flex; align-items: center; gap: 4px; font-family: Georgia, serif; font-size: clamp(15px, 1.9vw, 20px); text-decoration: none; color: #111; }
@@ -206,6 +216,7 @@ main { padding: clamp(16px, 4vw, 56px) 16px; display: grid; gap: clamp(28px, 5vw
   .facts { grid-template-columns: 1fr; gap: 18px; }
   .register { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 30px 16px 6px; }
   .register-mail { justify-self: center; }
+  .register-url.is-button { align-self: center; }
   .partner-strip { justify-content: center; padding: 22px 16px 44px; --logo-scale: .8; }
   .program-logos { justify-content: center; --logo-scale: .62; }
   .slot { grid-template-columns: 1fr; gap: 2px; }

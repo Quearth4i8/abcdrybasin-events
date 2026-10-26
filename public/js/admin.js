@@ -345,6 +345,7 @@
             field('Label', input('registerLabel', ev.registerLabel)),
             field('Contact email', input('email', ev.email, { type: 'email' }))),
           field('Registration link', input('registerUrl', ev.registerUrl, { type: 'url', placeholder: 'https://…' }), 'The QR code on the poster is generated from this link automatically.'),
+          field('Link text', input('registerText', ev.registerText ?? 'Register now', { placeholder: 'Register now' }), 'Shown on the poster as a button instead of the long link. Leave empty to show the link itself.'),
           toggle('showQr', 'Show QR code on the poster', ev.showQr))),
       h('div', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { text: 'Images' })),
