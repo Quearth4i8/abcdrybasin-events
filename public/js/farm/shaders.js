@@ -86,6 +86,14 @@ export function tuneMaterial(mat, renderer) {
     if (FOLIAGE[name]) addWind(mat, FOLIAGE[name][0], FOLIAGE[name][1], name !== 'corn_leaf' && name !== 'banana_leaf');
   } else if (name === 'glass') {
     mat.envMapIntensity = 1.6;
+  } else if (name === 'gh_glass') {
+    mat.transparent = true;
+    mat.opacity = 0.16;
+    mat.depthWrite = false;
+    mat.side = 2;
+    mat.roughness = 0.03;
+    mat.envMapIntensity = 2.0;
+    role = 'transparent';
   } else if (name === 'greenhouse_film') {
     mat.transparent = true;
     mat.opacity = 0.32;

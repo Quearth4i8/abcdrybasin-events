@@ -40,7 +40,7 @@ export function defaultLayout(mask) {
   mask.rect(DIRT, -44, -15, -7, 12);            // vegetable garden
   mask.rect(GRAVEL, -58, -16, -46, 18);         // service strip
   mask.rect(GRAVEL, 6, -16, 58, 18);            // aquaculture walkways
-  mask.rect(GRAVEL, -49, 26, -24, 55);          // greenhouse pad
+  mask.rect(GRAVEL, -49, 26, -20, 55);          // greenhouse pad
   mask.rect(SOIL, -19, 34, -11, 49);            // corn
   for (const z of [28, 33, 38, 43, 48, 53]) mask.line(DIRT, [[8, z], [58, z]], 2.6); // mulched tree rows
 
@@ -54,9 +54,30 @@ export function defaultLayout(mask) {
   run(o, 'wall', 10, 3.6, 60, 10, 60);
   put('gate', 0, 60);
 
+  // ---- streets: lane markings, curbs, street lights, crossing, hedges along the roads
+  for (let x = -53; x <= 53; x += 10) if (Math.abs(x) > 6) put('road_line', x, -22);
+  for (let z = -12; z <= 88; z += 10) put('road_line', 0, z, 90);
+  put('zebra', 0, -14.5, 0);
+  put('zebra', 0, 63.5, 0);
+  run(o, 'curb', 10, -58, -25.1, -3.2, -25.1);
+  run(o, 'curb', 10, 3.2, -25.1, 58, -25.1);
+  run(o, 'curb', 10, -58, -18.9, -3.2, -18.9);
+  run(o, 'curb', 10, 3.2, -18.9, 58, -18.9);
+  run(o, 'curb', 10, -3.1, -18.9, -3.1, 59);
+  run(o, 'curb', 10, 3.1, -18.9, 3.1, 59);
+  for (let x = -50; x <= 50; x += 20) put('streetlight', x + 5, -26, 0);
+  for (let z = -5; z <= 55; z += 20) { put('streetlight', -4, z, -90); put('streetlight', 4, z + 10, 90); }
+  for (const [z0, z1] of [[-17, -6], [-3, 18], [24, 36], [42, 57]]) {
+    run(o, 'hedge', 5, -5, z0, -5, z1);
+    run(o, 'hedge', 5, 5.2, z0, 5.2, z1);
+  }
+  run(o, 'hedge', 5, -56, -27.5, -45, -27.5);
+  run(o, 'hedge', 5, -39, -27.5, -32, -27.5);
+
   // ---- home: modern house, parking, garden
   put('house_modern', -42, -46);
-  put('car', -24.5, -33, 0);
+  put('parking_bays', -24.5, -35.5, 180);
+  put('car', -27.1, -35, 0);
   put('storage_shed', -12, -33, 0);
   for (const [x, z] of [[-51, -38], [-47, -37.5], [-36, -37.5], [-33, -38.5], [-52, -55], [-32, -55]]) put(r() < 0.5 ? 'bush' : 'hedge_bush', x, z, r() * 360);
   put('date_palm', -55, -40, 20);
@@ -110,8 +131,8 @@ export function defaultLayout(mask) {
   put('bush', 46, 15);
 
   // ---- hydroponic greenhouses, water tower, more solar
-  put('greenhouse', -42, 40);
-  put('greenhouse', -30, 40);
+  put('glasshouse', -39, 40);
+  put('greenhouse', -26, 40);
   put('water_tower', -54.5, 30);
   put('water_tank', -54, 39.5);
   put('solar_array', -53, 51);

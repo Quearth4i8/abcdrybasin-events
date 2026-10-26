@@ -10,8 +10,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { wind } from './shaders.js';
-import { createSky, createTerrain, GroundMask, Grass, terrainHeight } from './world.js';
+import { createSky, createTerrain, createForest, GroundMask, Grass, terrainHeight } from './world.js';
 import { Library, Farm } from './library.js';
 import { defaultLayout } from './default-layout.js';
 
@@ -52,6 +54,23 @@ if (vec(params.get('target'))) controls.target.copy(vec(params.get('target')));
 
 const env = createSky(scene, renderer, HIGH);
 
+// final colour grade: a touch of contrast and saturation, cool shadows, soft vignette
+const GRADE = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float l = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(vec3(l), c, 1.12);                       // saturation
+      c = (c - 0.5) * 1.06 + 0.5;                      // contrast
+      c += vec3(-0.012, 0.004, 0.016) * (1.0 - l);     // cool shadows
+      vec2 q = vUv - 0.5;
+      c *= 1.0 - dot(q, q) * 0.55;                     // vignette
+      gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    }`,
+};
 let composer = null;
 if (HIGH) {
   const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { samples: 4, type: THREE.HalfFloatType });
@@ -62,7 +81,9 @@ if (HIGH) {
   gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.2, scale: 1.0 });
   gtao.blendIntensity = 0.85;
   composer.addPass(gtao);
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.16, 0.5, 0.92));
   composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(GRADE));
 }
 
 // ---------------------------------------------------------------- load
@@ -138,6 +159,17 @@ const [gltf, saved, customModels] = await Promise.all([
 lib = new Library(gltf, renderer);
 for (const [entry, g] of customModels) lib.addModel(entry, g);
 scene.add(createTerrain(lib.layers, mask));
+createForest(scene, HIGH);
+// water: share the ripple normal map, make it reflect the sky and clouds
+const ripples = [...lib.waterMaterials].find((m) => m.normalMap)?.normalMap;
+for (const m of lib.waterMaterials) {
+  if (!m.normalMap && ripples) m.normalMap = ripples;
+  m.normalScale?.set(0.3, 0.3);
+  m.roughness = 0.02;
+  m.envMapIntensity = 2.2;
+  if (m.name === 'fish_water') { m.color.setRGB(0.05, 0.17, 0.18); m.opacity = 0.9; }
+  m.needsUpdate = true;
+}
 farm = new Farm(scene, lib);
 grass = new Grass(scene, HIGH, Number(params.get('grass')) || undefined);
 if (saved && Array.isArray(saved.objects)) {
@@ -207,5 +239,6 @@ renderer.setAnimationLoop(() => {
   const minY = terrainHeight(camera.position.x, camera.position.z) + 1.2;
   if (camera.position.y < minY) camera.position.y = minY;
   env.follow(controls.target);
+  env.update(dt, camera);
   if (composer) composer.render(); else renderer.render(scene, camera);
 });

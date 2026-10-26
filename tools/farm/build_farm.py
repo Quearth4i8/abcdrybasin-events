@@ -810,8 +810,11 @@ FLAT = {
     "pvc_gray": ((0.55, 0.56, 0.57), 0.4, 0.0), "frame_green": ((0.45, 0.80, 0.12), 0.4, 0.3),
     "stainless": ((0.78, 0.79, 0.80), 0.25, 0.9), "wheel_red": ((0.60, 0.08, 0.07), 0.5, 0.0),
     "led": ((0.55, 1.0, 0.45), 0.3, 0.0), "seedling": ((0.30, 0.78, 0.16), 0.5, 0.0),
+    "road_paint": ((0.92, 0.92, 0.88), 0.6, 0.0), "gh_glass": ((0.85, 0.92, 0.95), 0.05, 0.0),
+    "lamp_head": ((0.25, 0.26, 0.27), 0.4, 0.6), "lamp_light": ((1.0, 0.95, 0.85), 0.3, 0.0),
+    "hedge_core": ((0.07, 0.14, 0.05), 0.9, 0.0),
 }
-EMISSIVE = {"led": 4.0}  # key -> emission strength
+EMISSIVE = {"led": 4.0, "lamp_light": 1.5}  # key -> emission strength
 
 MAT = {}
 
@@ -898,6 +901,7 @@ def make_materials(T):
             bsdf.inputs["Emission Color"].default_value = (*lin, 1.0)
             bsdf.inputs["Emission Strength"].default_value = EMISSIVE[key]
     MAT["greenhouse_film"].use_backface_culling = False
+    MAT["gh_glass"].use_backface_culling = False
     water = make_flat_material("pond_water", (0.06, 0.10, 0.08), 0.03, 0.0, 1.0)
     nt = water.node_tree
     nm_img = nt.nodes.new("ShaderNodeTexImage")
@@ -2415,6 +2419,151 @@ def a_rotary(c):
                 n = (-d + Vector((rng.gauss(0, 0.5), rng.gauss(0, 0.5), rng.gauss(0, 0.5)))).normalized()
                 rb.card(cpos, n, rng.uniform(0.16, 0.24), "leaves", rot=rng.uniform(0, 6.28))
     rb.build("Drum_RotorMesh", c, parent=rotor)
+
+# -- streets & landscaping ---------------------------------------------------------
+
+@asset("streetlight", "Street light", "Walls & fences", clear_grass=False)
+def a_streetlight(c):
+    mb = MB()
+    H = 7.0
+    mb.lathe(Matrix.Identity(4), [(0.25, -0.3), (0.25, 0.15), (0.0, 0.16)], 10, "concrete")
+    mb.lathe(Matrix.Identity(4), [(0.09, 0.0), (0.055, H)], 10, "lamp_head")
+    arm = [Vector((0, 0, H - 0.3)), Vector((0, 0.35, H + 0.05)), Vector((0, 1.2, H + 0.2))]
+    mb.tube(arm, [0.045, 0.04, 0.035], 8, "lamp_head")
+    head = T_((0, 1.45, H + 0.15))
+    mb.box(head, (0.32, 0.7, 0.1), "lamp_head")
+    mb.face([head @ Vector((-0.13, -0.3, -0.051)), head @ Vector((-0.13, 0.3, -0.051)), head @ Vector((0.13, 0.3, -0.051)),
+             head @ Vector((0.13, -0.3, -0.051))], "lamp_light")
+    mb.build("StreetLight", c)
+
+
+def flat_rect(mb, x0, y0, x1, y1, key="road_paint", z=0.018):
+    mb.face([Vector((x0, y0, z)), Vector((x1, y0, z)), Vector((x1, y1, z)), Vector((x0, y1, z))], key,
+            [(0, 0), (1, 0), (1, 1), (0, 1)])
+
+
+@asset("road_line", "Road marking: dashed line (10 m)", "Walls & fences", clear_grass=False)
+def a_road_line(c):
+    mb = MB()
+    for x in (-4.5, 0.5):
+        flat_rect(mb, x, -0.06, x + 3.0, 0.06)
+    mb.build("RoadLine", c)
+
+
+@asset("zebra", "Road marking: zebra crossing", "Walls & fences", clear_grass=False)
+def a_zebra(c):
+    mb = MB()
+    for k in range(8):
+        x = -2.8 + k * 0.8
+        flat_rect(mb, x, -1.5, x + 0.45, 1.5)
+    mb.build("Zebra", c)
+
+
+@asset("parking_bays", "Road marking: parking bays", "Walls & fences", clear_grass=False)
+def a_parking(c):
+    mb = MB()
+    n, w, d = 5, 2.6, 5.0
+    for k in range(n + 1):
+        x = -n * w / 2 + k * w
+        flat_rect(mb, x - 0.06, -d / 2, x + 0.06, d / 2)
+    flat_rect(mb, -n * w / 2 - 0.06, d / 2 - 0.12, n * w / 2 + 0.06, d / 2)
+    mb.build("ParkingBays", c)
+
+
+@asset("curb", "Curb (10 m)", "Walls & fences", clear_grass=False)
+def a_curb(c):
+    mb = MB()
+    mb.box(T_((0, 0, 0.03)), (10.0, 0.18, 0.2), "concrete")
+    mb.build("Curb", c)
+
+
+@asset("hedge", "Trimmed hedge (5 m)", "Trees")
+def a_hedge(c):
+    mb = MB()
+    L, W, H = 5.0, 0.9, 1.1
+    mb.box(T_((0, 0, H / 2 - 0.05)), (L - 0.1, W - 0.15, H - 0.12), "hedge_core")
+    leaf = MB()
+    rng = random.Random(55)
+    area = [(L * H, "y"), (L * H, "Y"), (L * W, "Z"), (W * H, "x"), (W * H, "X")]
+    for a_, face in area:
+        for _ in range(int(a_ * 22)):
+            if face in "yY":
+                p = Vector((rng.uniform(-L / 2, L / 2), (W / 2) * (1 if face == "Y" else -1), rng.uniform(0.05, H)))
+                n = Vector((0, 1 if face == "Y" else -1, 0))
+            elif face == "Z":
+                p = Vector((rng.uniform(-L / 2, L / 2), rng.uniform(-W / 2, W / 2), H))
+                n = Vector((0, 0, 1))
+            else:
+                p = Vector(((L / 2) * (1 if face == "X" else -1), rng.uniform(-W / 2, W / 2), rng.uniform(0.05, H)))
+                n = Vector((1 if face == "X" else -1, 0, 0))
+            p += n * rng.uniform(-0.08, 0.04)
+            nn = (n + Vector((rng.gauss(0, 0.5), rng.gauss(0, 0.5), rng.gauss(0, 0.5)))).normalized()
+            leaf.card(p, nn, rng.uniform(0.35, 0.5), "leaves", rot=rng.uniform(0, 6.28))
+    mb.build("HedgeCore", c)
+    lo = leaf.build("HedgeLeaves", c, merge=False)
+    set_card_normals(lo, lambda co: Vector((co.x * 0.6, 0, H * 0.4)))
+
+
+@asset("glasshouse", "Glass greenhouse (Venlo)", "Hydroponics")
+def a_glasshouse(c):
+    """Multi-span glass greenhouse with tomato rows (like large commercial glasshouses)."""
+    mb = MB()
+    spans, sw, L, gh, rise = 4, 4.0, 24.0, 4.2, 0.95
+    W = spans * sw
+    mb.box(T_((0, 0, 0.04)), (W + 0.4, L + 0.4, 0.12), "concrete")
+    # posts along gutters and walls
+    for i in range(spans + 1):
+        x = -W / 2 + i * sw
+        for y in np.arange(-L / 2, L / 2 + 0.1, 4.0):
+            mb.box(T_((x, y, gh / 2)), (0.09, 0.09, gh), "stainless")
+        mb.box(T_((x, 0, gh)), (0.22, L + 0.1, 0.14), "stainless")  # gutter
+    for y in (-L / 2, L / 2):
+        mb.box(T_((0, y, gh - 0.05)), (W, 0.08, 0.1), "stainless")
+        mb.box(T_((0, y, 0.45)), (W, 0.12, 0.9), "concrete")  # knee wall
+    # roof: two glass slopes per span with glazing bars
+    for i in range(spans):
+        x0 = -W / 2 + i * sw
+        a = Vector((x0, 0, gh))
+        r = Vector((x0 + sw / 2, 0, gh + rise))
+        b = Vector((x0 + sw, 0, gh))
+        for p, q in ((a, r), (r, b)):
+            pts = [p + Vector((0, -L / 2, 0)), q + Vector((0, -L / 2, 0)), q + Vector((0, L / 2, 0)), p + Vector((0, L / 2, 0))]
+            mb.face(pts if p is a else pts, "gh_glass")
+            for y in np.arange(-L / 2, L / 2 + 0.01, 1.0):
+                mb.beam(p + Vector((0, y, 0.02)), q + Vector((0, y, 0.02)), 0.03, 0.03, "stainless", grain=False)
+        mb.beam(r + Vector((0, -L / 2, 0.02)), r + Vector((0, L / 2, 0.02)), 0.08, 0.08, "stainless", grain=False)
+        # gable glass at both ends
+        for y in (-L / 2, L / 2):
+            mb.face([Vector((x0, y, gh)), Vector((x0 + sw, y, gh)), Vector((x0 + sw / 2, y, gh + rise))], "gh_glass")
+    # glass walls with horizontal bars
+    for x in (-W / 2, W / 2):
+        mb.face([Vector((x, -L / 2, 0.9)), Vector((x, L / 2, 0.9)), Vector((x, L / 2, gh)), Vector((x, -L / 2, gh))], "gh_glass")
+        mb.box(T_((x, 0, 0.45)), (0.12, L, 0.9), "concrete")
+        for z in (1.9, 2.9):
+            mb.box(T_((x, 0, z)), (0.05, L, 0.04), "stainless")
+    for y in (-L / 2, L / 2):
+        mb.face([Vector((-W / 2, y, 0.9)), Vector((W / 2, y, 0.9)), Vector((W / 2, y, gh)), Vector((-W / 2, y, gh))], "gh_glass")
+    for x in (-0.9, 0.9):  # entrance frame
+        mb.box(T_((x, -L / 2 - 0.02, 1.2)), (0.08, 0.08, 2.4), "stainless")
+    mb.box(T_((0, -L / 2 - 0.02, 2.4)), (1.9, 0.08, 0.08), "stainless")
+    # crop rows: tomatoes on high wires with heating pipes
+    rng = random.Random(66)
+    for i in range(spans * 2):
+        x = -W / 2 + sw / 4 + i * sw / 2
+        mb.box(T_((x, 0, 0.15)), (0.35, L - 3.0, 0.2), "pvc")  # grow gutter / slab
+        for xx in (x - 0.25, x + 0.25):
+            mb.beam((xx, -L / 2 + 1.5, 0.12), (xx, L / 2 - 1.5, 0.12), 0.05, 0.05, "galv")
+        for y in np.arange(-L / 2 + 1.8, L / 2 - 1.5, 0.55):
+            base = Vector((x + rng.gauss(0, 0.03), y, 0.25))
+            mb.tube([base, base + Vector((rng.gauss(0, 0.04), rng.gauss(0, 0.04), 2.4))], [0.012, 0.008], 4, "seedling", smooth=False)
+            for k in range(6):
+                cp = base + Vector((rng.gauss(0, 0.16), rng.gauss(0, 0.16), rng.uniform(0.4, 2.5)))
+                mb.card(cp, Vector((rng.gauss(0, 1), rng.gauss(0, 1), 0.4)).normalized(), rng.uniform(0.38, 0.5), "leaves",
+                        rot=rng.uniform(0, 6.28))
+            for k in range(2):
+                fp = base + Vector((rng.gauss(0, 0.1), rng.gauss(0, 0.1), rng.uniform(0.5, 1.3)))
+                ellipsoid(mb, T_(fp), 0.045, 0.045, 0.04, "tomato" if rng.random() < 0.7 else "lettuce", 6, 3)
+    mb.build("Glasshouse", c, merge=False)
 
 # -- water -----------------------------------------------------------------------
 

@@ -49,11 +49,16 @@ export function createSky(scene, renderer, high) {
   scene.fog = new THREE.FogExp2(0xbac8d4, 0.0015);
   scene.environmentIntensity = 0.45;
 
+  const clouds = createClouds();
+  scene.add(clouds);
+
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
   const envSky = new THREE.Mesh(sky.geometry, sky.material);
   envSky.scale.setScalar(900);
-  envScene.add(envSky);
+  const envClouds = new THREE.Mesh(clouds.geometry, clouds.material);
+  envClouds.scale.setScalar(850);
+  envScene.add(envSky, envClouds);
   let envRT = null;
   const dir = new THREE.Vector3();
   const AZIMUTH = 215;
@@ -64,6 +69,8 @@ export function createSky(scene, renderer, high) {
     dir.set(Math.sin(theta) * Math.sin(phi), Math.cos(phi), -Math.cos(theta) * Math.sin(phi));
     u.sunPosition.value.copy(dir);
     const low = THREE.MathUtils.smoothstep(elevationDeg, 2, 25);
+    clouds.material.uniforms.sunDir.value.copy(dir);
+    clouds.material.uniforms.sunColor.value.setRGB(1, 0.78 + 0.2 * low, 0.62 + 0.36 * low).multiplyScalar(0.35 + 0.65 * low);
     sun.color.setRGB(1, 0.72 + 0.25 * low, 0.5 + 0.4 * low);
     sun.intensity = 0.8 + 3.6 * low;
     scene.fog.color.setRGB(0.70 + 0.1 * (1 - low), 0.76 - 0.02 * (1 - low), 0.82 - 0.12 * (1 - low));
@@ -75,7 +82,145 @@ export function createSky(scene, renderer, high) {
     sun.target.position.set(target.x, 0, target.z);
     sun.position.copy(dir).multiplyScalar(250).add(sun.target.position);
   }
-  return { sky, sun, setElevation, follow };
+  function update(dt, camera) {
+    clouds.material.uniforms.time.value += dt;
+    clouds.position.copy(camera.position);
+  }
+  return { sky, sun, clouds, setElevation, follow, update };
+}
+
+/** A dome of drifting fbm clouds, lit from the sun side, fading out towards the horizon. */
+function createClouds() {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      time: { value: 0 }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: new THREE.Color(1, 1, 1) },
+      coverage: { value: 0.47 },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = p.xyww; // always at the far plane, behind the scene
+      }`,
+    fragmentShader: `
+      uniform float time, coverage;
+      uniform vec3 sunDir, sunColor;
+      varying vec3 vDir;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float s = 0.0, a = 0.5;
+        for (int i = 0; i < 6; i++) { s += a * noise(p); p = p * 2.03 + vec2(17.1, 3.7); a *= 0.5; }
+        return s;
+      }
+      void main() {
+        vec3 d = normalize(vDir);
+        if (d.y < 0.0) discard;
+        vec2 uv = d.xz / (d.y + 0.12) * 1.6 + vec2(time * 0.004, time * 0.0015);
+        float n = fbm(uv);
+        float detail = fbm(uv * 3.1 + 5.0);
+        float dens = smoothstep(coverage, coverage + 0.22, n * 0.8 + detail * 0.25);
+        if (dens < 0.01) discard;
+        // light: brighter on the sun side and at the cloud edges, grey bellies
+        float toward = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0);
+        float shade = smoothstep(0.0, 1.0, (n - coverage) * 3.5);
+        vec3 lit = mix(vec3(1.0), vec3(0.62, 0.66, 0.72), shade * 0.85) * sunColor;
+        lit += sunColor * pow(toward, 6.0) * 0.25 * (1.0 - shade);
+        float horizon = smoothstep(0.02, 0.22, d.y);
+        gl_FragColor = vec4(lit * 1.6, dens * horizon * 0.92);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1000, 48, 24), mat);
+  mesh.renderOrder = -1;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+// ---------------------------------------------------------------- distant forest on the hills
+function treeGeometry(kind) {
+  const parts = [];
+  const trunk = new THREE.CylinderGeometry(0.12, 0.2, kind === 'cypress' ? 2 : 2.6, 5);
+  trunk.translate(0, kind === 'cypress' ? 1 : 1.3, 0);
+  parts.push([trunk, new THREE.Color(0.28, 0.2, 0.13)]);
+  const lumpy = (g) => {
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { // irregular silhouettes
+      const k = 1 + 0.18 * Math.sin(p.getX(i) * 3.1 + p.getY(i) * 2.3) * Math.cos(p.getZ(i) * 2.7);
+      p.setXYZ(i, p.getX(i) * k, p.getY(i), p.getZ(i) * k);
+    }
+    return g;
+  };
+  if (kind === 'cypress') {
+    const crown = new THREE.SphereGeometry(1, 7, 6);
+    crown.scale(0.95, 3.8, 0.95);
+    crown.translate(0, 4.6, 0);
+    parts.push([lumpy(crown), new THREE.Color(0.06, 0.12, 0.05)]);
+  } else {
+    // a crown made of three overlapping blobs reads as foliage rather than a ball
+    for (const [x, y, z, r] of [[0, 5.2, 0, 2.4], [1.5, 4.3, 0.6, 1.8], [-1.3, 4.4, -0.8, 1.9]]) {
+      const blob = new THREE.IcosahedronGeometry(1, 1);
+      blob.scale(r, r * 0.85, r);
+      blob.translate(x, y, z);
+      parts.push([lumpy(blob), new THREE.Color(0.09 + y * 0.004, 0.17 + y * 0.004, 0.06)]);
+    }
+  }
+  const geos = parts.map(([g, c]) => {
+    const n = g.index ? g.toNonIndexed() : g;
+    const col = new Float32Array(n.attributes.position.count * 3);
+    for (let i = 0; i < col.length; i += 3) { col[i] = c.r; col[i + 1] = c.g; col[i + 2] = c.b; }
+    n.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    n.deleteAttribute('uv');
+    return n;
+  });
+  const merged = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'color']) {
+    const arrays = geos.map((g) => g.attributes[name].array);
+    const out = new Float32Array(arrays.reduce((a, b) => a + b.length, 0));
+    let off = 0;
+    for (const a of arrays) { out.set(a, off); off += a.length; }
+    merged.setAttribute(name, new THREE.BufferAttribute(out, 3));
+  }
+  return merged; // keep the primitives' smooth normals (recomputing would facet the crowns)
+}
+
+export function createForest(scene, high) {
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  const total = high ? 14000 : 5000;
+  const rnd = mulberry32(99);
+  const kinds = [['broad', 0.68], ['cypress', 0.32]];
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
+  for (const [kind, share] of kinds) {
+    const count = Math.round(total * share);
+    const mesh = new THREE.InstancedMesh(treeGeometry(kind), mat, count);
+    let n = 0;
+    for (let tries = 0; n < count && tries < count * 20; tries++) {
+      const x = (rnd() * 2 - 1) * 340, z = (rnd() * 2 - 1) * 340;
+      const d = Math.max(Math.abs(x), Math.abs(z));
+      if (d < FLAT + 22) continue;
+      // dense woodland clumps with open meadows between them
+      const clump = vnoise(x * 0.012 + 7, z * 0.012 - 3) * 0.7 + vnoise(x * 0.05, z * 0.05) * 0.3;
+      if (clump < 0.5 - Math.min(0.12, (d - FLAT) / 900)) continue;
+      p.set(x, terrainHeight(x, z) - 0.3, z);
+      q.setFromAxisAngle(up, rnd() * Math.PI * 2);
+      const sc = 0.8 + rnd() * 0.9;
+      s.set(sc, sc * (0.85 + rnd() * 0.4), sc);
+      mesh.setMatrixAt(n, m4.compose(p, q, s));
+      tint.setRGB(0.75 + rnd() * 0.35, 0.8 + rnd() * 0.3, 0.75 + rnd() * 0.25);
+      mesh.setColorAt(n, tint);
+      n++;
+    }
+    mesh.count = n;
+    mesh.computeBoundingSphere();
+    scene.add(mesh);
+  }
 }
 
 // ---------------------------------------------------------------- ground mask (painted layers)
@@ -300,8 +445,9 @@ export class Grass {
       if (edge > 0.8 && rnd() < (edge - 0.8) * 5) continue;
       p.set(x, terrainHeight(x, z) - 0.02, z);
       q.setFromAxisAngle(up, rnd() * Math.PI * 2);
-      const sc = (0.7 + rnd() * 0.7) * (1 - bare);
-      s.set(sc, sc * (0.8 + rnd() * 0.5), sc);
+      const mowed = Math.abs(x) < 61 && Math.abs(z) < 61; // tidy lawn inside the compound, wild grass outside
+      const sc = (0.7 + rnd() * 0.7) * (1 - bare) * (mowed ? 0.8 : 1);
+      s.set(sc, sc * (0.8 + rnd() * 0.5) * (mowed ? 0.5 : 1), sc);
       this.mesh.setMatrixAt(n, m4.compose(p, q, s));
       const dry = Math.max(0, rnd() - 0.75) * 2.2;
       tint.setRGB(0.85 + 0.35 * dry + rnd() * 0.15, 0.9 + 0.2 * dry + rnd() * 0.15, 0.7 + rnd() * 0.25);
