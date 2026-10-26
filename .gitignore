@@ -4,3 +4,4 @@ data/*.tmp
 data/uploads/
 .env
 tools/farm/out/
+data/farm-layout.json

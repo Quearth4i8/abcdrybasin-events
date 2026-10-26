@@ -1,32 +1,36 @@
 """
-Procedural farm for Blender (4.2+ / 5.x) -> realistic glTF scene for Three.js.
+Procedural farm asset library for Blender (4.2+ / 5.x) -> glTF for the Three.js farm editor.
 
 What it builds
-  * Tileable PBR textures generated from code (color, roughness/metal, normal):
-    painted barn planks, lap siding, asphalt shingles, rusty corrugated roofing,
-    galvanised silo panels, field stone, brick, bark, straw, grass, dirt, plowed soil,
-    leaf clusters, corn leaves ... (no image files needed, everything is generated).
+  * Tileable PBR textures generated from code (color, roughness/metal, normal): barn planks,
+    siding, stucco, shingles, corrugated roofing, silo panels, stone, brick, bark, straw, grass,
+    dirt, soil, asphalt, gravel, solar cells, chain-link mesh, leaf clusters (broadleaf, olive,
+    citrus), banana leaves, palm fronds ... (no image files needed).
   * Blender materials wired from those textures (exportable to glTF as-is).
-  * Terrain with rolling hills, a pond and painted masks for paths / fields.
-  * Barn (gambrel roof, sliding doors, hayloft, cupola), silo, farmhouse with porch,
-    windmill, paddock fence, hay bales, barrels, crates, trough, corn field,
-    trees, bushes, reeds and rocks.
-  * Sun + sky, camera, optional Cycles preview render, and a .glb export.
+  * A library of placeable assets, each modelled at the origin (front = -Y):
+    buildings (modern house, classic farmhouse, red barn, poultry house, livestock shed,
+    storage shed, silo, feed bin), water (fish ponds with aerator, natural pond, elevated
+    and ground tanks), energy (solar array, wind turbine, windmill), crops (hydroponic
+    greenhouse, raised beds, corn plot, herb spiral, compost, beehives, pergola), trees
+    (shade, olive, orange, lemon, banana, date palm, shrubs), livestock (chickens, goats,
+    sheep, trough), walls/fences/gates and props.
+  * Every asset is an empty named `asset:<id>` with `label`, `category` and `clearGrass`
+    custom properties; the web editor lists them automatically.
 
 Run headless (recommended):
-    blender -b -P tools/farm/build_farm.py -- --out public/farm --render tools/farm/out/preview.png
+    blender -b -P tools/farm/build_farm.py -- --render tools/farm/out/library.png
 or with the `bpy` pip module:
-    python tools/farm/build_farm.py --out public/farm
-or open Blender > Scripting tab > open this file > Run Script (it rebuilds the current scene).
+    python tools/farm/build_farm.py
+or open Blender > Scripting tab > open this file > Run Script (it replaces the open scene).
 
 Options (after `--` when run through blender):
-    --out DIR        where farm.glb is written (default: <repo>/public/farm)
+    --out DIR        where assets.glb is written (default: <repo>/public/farm)
     --tex N          main texture resolution (default 1024)
-    --render PATH    also render a Cycles preview to PATH
+    --render PATH    also render a Cycles preview of the library grid to PATH
     --samples N      Cycles samples for the preview (default 64)
     --blend PATH     also save the .blend file
     --no-export      skip the glTF export
-    --seed N         random seed for the layout (default 7)
+    --seed N         random seed (default 7)
 """
 
 import math
@@ -194,6 +198,11 @@ def save_image(name, rgb, alpha=None, data=False):
     return img
 
 
+def half(img):
+    """2x2 box downsample (keeps tiling)."""
+    return (img[0::2, 0::2] + img[1::2, 0::2] + img[0::2, 1::2] + img[1::2, 1::2]) * 0.25
+
+
 class Tex:
     """A generated PBR texture set."""
 
@@ -202,8 +211,12 @@ class Tex:
         n = color.shape[0]
         self.color = save_image(f"{key}_color", color, alpha)
         orm = np.stack([np.ones_like(rough), rough, metal * np.ones_like(rough)], -1)
-        self.orm = save_image(f"{key}_orm", orm, data=True)
         nrm = normal if normal is not None else height_to_normal(height, strength * n / 1024.0)
+        if n > 512:  # detail maps at half resolution: much smaller files, no visible loss
+            orm, nrm = half(orm), half(nrm)
+            l = np.linalg.norm(nrm * 2 - 1, axis=-1, keepdims=True)
+            nrm = ((nrm * 2 - 1) / np.maximum(l, 1e-6)) * 0.5 + 0.5
+        self.orm = save_image(f"{key}_orm", orm, data=True)
         self.normal = save_image(f"{key}_normal", nrm, data=True)
         self.alpha = alpha is not None
 
@@ -512,20 +525,21 @@ def tex_galv(n):
     return Tex("galv", col, rough, 0.85 * (1 - rust), fine * 0.02, 4)
 
 
-def tex_leaves(n):
+def tex_leaves(n, key="leaves", seed=171, count=46, L=(0.09, 0.15), wr=(0.38, 0.5),
+               c0=(0.16, 0.30, 0.07), c1=(0.32, 0.45, 0.12), yellow=0.12):
     """Cluster of leaves on transparent background for foliage cards. UV 0..1."""
-    rng = np.random.default_rng(171)
+    rng = np.random.default_rng(seed)
     U, Vv = grid(n)
     alpha = np.zeros((n, n), np.float32)
     col = np.zeros((n, n, 3), np.float32)
     height = np.zeros((n, n), np.float32)
-    fine = fnoise(n, 1.2, 172)
-    count = 46
+    fine = fnoise(n, 1.2, seed + 1)
+    Lr = L
     for k in range(count):
         cx, cy = rng.uniform(0.12, 0.88, 2)
         ang = rng.uniform(0, 2 * np.pi)
-        L = rng.uniform(0.09, 0.15)
-        W = L * rng.uniform(0.38, 0.5)
+        L = rng.uniform(*Lr)
+        W = L * rng.uniform(*wr)
         dx, dy = U - cx, Vv - cy
         a = dx * math.cos(ang) + dy * math.sin(ang)
         b = -dx * math.sin(ang) + dy * math.cos(ang)
@@ -534,8 +548,8 @@ def tex_leaves(n):
         inside = (np.abs(t) < 1) & (np.abs(b) < width)
         stem = (t < -0.9) & (t > -1.35) & (np.abs(b) < 0.0025)
         shade = rng.uniform(0, 1)
-        lc = mix([0.16, 0.30, 0.07], [0.32, 0.45, 0.12], np.full((n, n), shade, np.float32))
-        if rng.random() < 0.12:
+        lc = mix(c0, c1, np.full((n, n), shade, np.float32))
+        if rng.random() < yellow:
             lc = mix(lc, [0.55, 0.50, 0.15], np.full((n, n), 0.6, np.float32))
         vein = np.abs(b) < 0.0022
         lc = lc * (0.85 + 0.15 * (1 - np.abs(b) / (W + 1e-6)))[..., None]
@@ -548,7 +562,7 @@ def tex_leaves(n):
     col[alpha < 0.5] = avg  # avoid dark fringes when mip-mapping
     col *= (0.92 + 0.08 * fine)[..., None]
     rough = 0.6 * np.ones_like(fine)
-    return Tex("leaves", col, rough, 0.0, height, 6, alpha=alpha)
+    return Tex(key, col, rough, 0.0, height, 6, alpha=alpha)
 
 
 def tex_corn_leaf(n):
@@ -573,6 +587,141 @@ def tex_water_normal(n):
     h = fnoise(n, 2.2, 191, fmin=3) * 0.6 + fnoise(n, 1.6, 192, fmin=8) * 0.4
     col = np.full((n, n, 3), 0.1, np.float32)
     return Tex("water", col, 0.05 * np.ones_like(h), 0.0, h, 3)
+
+
+def tex_stucco(n):
+    """Off-white rendered wall (modern buildings, perimeter wall). Tile = 2 m."""
+    fine = fnoise(n, 0.9, 211)
+    mid = fnoise(n, 1.8, 212)
+    big = fnoise(n, 2.4, 213)
+    col = mix([0.86, 0.84, 0.79], [0.76, 0.74, 0.69], sstep(-2, 2.5, big * 0.7 + mid * 0.4) * 0.7)
+    col *= (0.97 + 0.03 * fine)[..., None]
+    return Tex("stucco", col, 0.85 + 0.05 * np.clip(fine, -1, 1), 0.0, fine * 0.08 + mid * 0.04, 8)
+
+
+def tex_paving(n):
+    """Asphalt road surface. Tile = 4 m."""
+    fine = fnoise(n, 0.5, 221)
+    mid = fnoise(n, 1.6, 222)
+    big = fnoise(n, 2.5, 223)
+    ridged = 1 - np.abs(fnoise(n, 2.1, 224))
+    cracks = sstep(0.975, 0.995, ridged) * sstep(0.5, 1.5, big)
+    col = mix([0.23, 0.23, 0.23], [0.15, 0.15, 0.16], sstep(-2, 2, big + 0.4 * mid))
+    agg = sstep(1.6, 2.4, fine)
+    col = mix(col, [0.45, 0.44, 0.42], agg * 0.8)
+    col *= (1 - 0.5 * cracks)[..., None]
+    rough = 0.9 - 0.15 * agg
+    return Tex("paving", col, rough, 0.0, fine * 0.15 + agg * 0.2 - cracks * 0.4, 8)
+
+
+def tex_gravel(n):
+    """Loose gravel for yards and walkways. Tile = 2 m."""
+    f1, f2, idx = worley(n, 420, 231)
+    rng = np.random.default_rng(232)
+    tone = rng.uniform(0.45, 0.78, 420)[idx]
+    warm = rng.uniform(0, 1, 420)[idx]
+    edge = (f2 - f1) * n
+    stone = sstep(0.5, 3.0, edge)
+    base = np.stack([tone, tone * (0.95 + 0.04 * warm), tone * (0.86 + 0.06 * warm)], -1)
+    col = mix([0.25, 0.23, 0.20], base, stone)
+    dome = np.sqrt(np.clip(edge / 12.0, 0, 1))
+    return Tex("gravel", col, 0.8 * np.ones_like(tone), 0.0, dome, 10)
+
+
+def tex_solar(n):
+    """One photovoltaic panel (UV 0..1 across the panel): 6 x 10 cells, busbars, frame."""
+    U, Vv = grid(n)
+    cu, cv = U * 6, Vv * 10
+    fu, fv = cu - np.floor(cu), cv - np.floor(cv)
+    gap = (fu < 0.03) | (fu > 0.97) | (fv < 0.03) | (fv > 0.97)
+    bus = (np.abs(fu - 0.33) < 0.006) | (np.abs(fu - 0.66) < 0.006)
+    fine = fnoise(n, 1.0, 241)
+    col = mix([0.04, 0.07, 0.17], [0.06, 0.10, 0.22], sstep(-2, 2, fine))
+    col[gap] = [0.75, 0.77, 0.80]
+    col[bus & ~gap] = [0.55, 0.57, 0.60]
+    frame = (U < 0.015) | (U > 0.985) | (Vv < 0.009) | (Vv > 0.991)
+    col[frame] = [0.66, 0.68, 0.70]
+    rough = np.where(frame, 0.35, 0.12)
+    metal = np.where(frame | bus, 0.9, 0.0)
+    height = frame * 1.0 + gap * 0.1
+    return Tex("solar", col, rough, metal, height, 3)
+
+
+def tex_mesh_fence(n):
+    """Galvanised chain-link / poultry netting with alpha. Tile = 0.5 m (10 diamonds/m)."""
+    U, Vv = grid(n)
+    d1 = np.abs(((U + Vv) * 5) % 1.0 - 0.5)
+    d2 = np.abs(((U - Vv) * 5) % 1.0 - 0.5)
+    w = 0.03
+    wire = (d1 > 0.5 - w) | (d2 > 0.5 - w)
+    alpha = wire.astype(np.float32)
+    col = np.full((n, n, 3), 0.62, np.float32)
+    col *= (0.85 + 0.15 * (1 - np.minimum(0.5 - d1, 0.5 - d2) / w).clip(0, 1))[..., None]
+    return Tex("mesh_fence", col, 0.4 * np.ones_like(U), 0.8, alpha * 0.5, 4, alpha=alpha)
+
+
+def tex_banana_leaf(n):
+    """Large banana leaf blade: U across, V base -> tip; torn edges."""
+    U, Vv = grid(n)
+    width = np.sin(np.pi * np.clip(Vv * 0.96 + 0.02, 0, 1)) ** 0.45
+    x = (U - 0.5) * 2
+    inside = np.abs(x) < width * 0.98
+    rng = np.random.default_rng(251)
+    veins = 0.5 + 0.5 * np.cos(2 * np.pi * (Vv * 60 - np.abs(x) * 9))
+    tears = np.zeros_like(U, dtype=bool)
+    for _ in range(14):
+        v0 = rng.uniform(0.1, 0.9)
+        side = rng.choice([-1, 1])
+        line = Vv - (v0 + (np.abs(x) - 0.0) * 0.15)
+        tears |= (np.abs(line) < 0.004) & (np.sign(x) == side) & (np.abs(x) > rng.uniform(0.25, 0.7))
+    midrib = np.abs(x) < 0.035
+    fine = fnoise(n, 1.4, 252)
+    col = mix([0.18, 0.40, 0.08], [0.30, 0.52, 0.14], sstep(-2, 2, fine + 0.6 * x))
+    col *= (0.9 + 0.1 * veins)[..., None]
+    dry = sstep(0.82, 0.98, np.abs(x) / (width + 1e-6)) * sstep(0.3, 1.8, fnoise(n, 2.0, 253))
+    col = mix(col, [0.48, 0.40, 0.20], dry)
+    col[midrib] = [0.62, 0.68, 0.40]
+    alpha = (inside & ~tears).astype(np.float32)
+    return Tex("banana_leaf", col, 0.5 * np.ones_like(U), 0.0, veins * 0.2 + midrib * 0.5, 5, alpha=alpha)
+
+
+def tex_palm_frond(n):
+    """Pinnate palm frond: rachis along V, narrow leaflets angled toward the tip."""
+    U, Vv = grid(n)
+    x = (U - 0.5) * 2
+    rachis = np.abs(x) < 0.02 + 0.02 * (1 - Vv)
+    ang = math.radians(32)
+    leaflets = 26
+    # along-leaflet coordinate s, across t (leaflets start at the rachis, angled toward the tip)
+    s_ = np.abs(x)
+    phase = (Vv - s_ * math.tan(ang) * 0.35) * leaflets
+    t = np.abs(phase - np.round(phase))
+    length = 0.95 * np.sin(np.pi * np.clip(Vv, 0.02, 0.98)) ** 0.7
+    taper = 1 - s_ / (length + 1e-6)
+    leaf = (t < 0.3 * np.clip(taper, 0, 1) ** 0.6 + 0.03) & (s_ < length) & (Vv > 0.1)
+    fine = fnoise(n, 1.4, 261)
+    col = mix([0.30, 0.40, 0.24], [0.44, 0.52, 0.32], sstep(-2, 2, fine))
+    col = mix(col, [0.58, 0.50, 0.30], sstep(0.85, 1.0, s_ / (length + 1e-6)) * 0.7)
+    col[rachis] = [0.55, 0.50, 0.32]
+    alpha = (leaf | (rachis & (Vv < 0.99))).astype(np.float32)
+    avg = col[alpha > 0.5].mean(0)
+    col[alpha < 0.5] = avg
+    return Tex("palm_frond", col, 0.55 * np.ones_like(U), 0.0, rachis * 0.5 + leaf * 0.2, 4, alpha=alpha)
+
+
+def tex_palm_trunk(n):
+    """Date palm trunk: rows of overlapping old leaf bases. Tile = 1 m."""
+    U, Vv = grid(n)
+    rows = 8
+    pv = Vv * rows
+    rid = np.floor(pv)
+    fv = pv - rid
+    pu = U * 6 + (rid % 2) * 0.5
+    fu = pu - np.floor(pu)
+    bump = np.clip(1 - ((fu - 0.5) * 2) ** 2, 0, 1) * np.clip(fv * 1.4, 0, 1) * (1 - fv) * 4
+    fib = fnoise(n, 1.2, 271, ax=1, ay=6)
+    col = mix([0.22, 0.18, 0.14], [0.50, 0.42, 0.32], sstep(0.0, 0.8, bump) * (0.8 + 0.2 * sstep(-2, 2, fib)))
+    return Tex("palm_trunk", col, 0.9 * np.ones_like(U), 0.0, bump * 0.8 + fib * 0.08, 12)
 
 
 def make_textures():
@@ -605,6 +754,19 @@ def make_textures():
         ("leaves", lambda: tex_leaves(N)),
         ("corn_leaf", lambda: tex_corn_leaf(H)),
         ("water", lambda: tex_water_normal(H)),
+        ("stucco", lambda: tex_stucco(H)),
+        ("paving", lambda: tex_paving(N)),
+        ("gravel", lambda: tex_gravel(H)),
+        ("solar", lambda: tex_solar(H)),
+        ("mesh_fence", lambda: tex_mesh_fence(H)),
+        ("banana_leaf", lambda: tex_banana_leaf(H)),
+        ("palm_frond", lambda: tex_palm_frond(H)),
+        ("palm_trunk", lambda: tex_palm_trunk(H)),
+        ("roof_gray", lambda: tex_corrugated(N, "roof_gray", (0.56, 0.58, 0.59), 0.12, "u", 32, 47)),
+        ("olive_leaves", lambda: tex_leaves(H, "olive_leaves", 281, 110, (0.05, 0.085), (0.16, 0.22),
+                                            (0.22, 0.29, 0.17), (0.38, 0.45, 0.30), 0.0)),
+        ("citrus_leaves", lambda: tex_leaves(H, "citrus_leaves", 291, 70, (0.07, 0.11), (0.4, 0.5),
+                                             (0.06, 0.20, 0.04), (0.16, 0.32, 0.07), 0.04)),
     ]
     for key, fn in jobs:
         T[key] = fn()
@@ -623,6 +785,28 @@ TILE = {
     "shingles": 2.0, "stone": 2.0, "brick": 1.0, "grass": 3.0, "dirt": 3.0, "soil": 3.2,
     "straw": 1.0, "hay_end": 1.0, "bark": 1.0, "rock": 1.5, "concrete": 2.0, "galv": 1.0,
     "leaves": 1.0, "corn_leaf": 1.0, "water": 6.0, "glass": 1.0, "dark_metal": 1.0,
+    "stucco": 2.0, "paving": 4.0, "gravel": 2.0, "solar": 1.0, "mesh_fence": 0.5, "banana_leaf": 1.0,
+    "palm_frond": 1.0, "palm_trunk": 1.0, "roof_gray": 2.0, "olive_leaves": 1.0, "citrus_leaves": 1.0,
+}
+
+# plain (untextured) materials: key -> (sRGB colour, roughness, metallic)
+FLAT = {
+    "glass": ((0.05, 0.07, 0.08), 0.04, 0.0), "dark_metal": ((0.07, 0.07, 0.07), 0.45, 0.9),
+    "fish_water": ((0.10, 0.30, 0.30), 0.04, 0.0), "pond_bottom": ((0.10, 0.16, 0.13), 0.9, 0.0),
+    "greenhouse_film": ((0.92, 0.95, 0.95), 0.15, 0.0), "pvc": ((0.90, 0.90, 0.88), 0.35, 0.0),
+    "pipe_blue": ((0.08, 0.32, 0.65), 0.35, 0.0), "poly_black": ((0.05, 0.05, 0.05), 0.45, 0.0),
+    "poly_green": ((0.12, 0.33, 0.18), 0.45, 0.0), "lettuce": ((0.45, 0.70, 0.22), 0.6, 0.0),
+    "lettuce_red": ((0.42, 0.14, 0.16), 0.6, 0.0), "cabbage": ((0.38, 0.55, 0.42), 0.45, 0.0),
+    "tomato": ((0.75, 0.08, 0.04), 0.3, 0.0), "orange_fruit": ((0.95, 0.48, 0.05), 0.4, 0.0),
+    "lemon": ((0.93, 0.80, 0.15), 0.4, 0.0), "flower_yellow": ((0.98, 0.75, 0.10), 0.6, 0.0),
+    "flower_purple": ((0.50, 0.35, 0.75), 0.6, 0.0), "banana_stem": ((0.42, 0.48, 0.24), 0.6, 0.0),
+    "banana_fruit": ((0.45, 0.58, 0.16), 0.5, 0.0), "dates": ((0.55, 0.30, 0.10), 0.6, 0.0),
+    "feather_white": ((0.88, 0.86, 0.80), 0.8, 0.0), "feather_brown": ((0.52, 0.28, 0.12), 0.8, 0.0),
+    "comb_red": ((0.75, 0.06, 0.05), 0.5, 0.0), "beak": ((0.90, 0.60, 0.15), 0.5, 0.0),
+    "goat_white": ((0.84, 0.82, 0.76), 0.85, 0.0), "goat_brown": ((0.42, 0.27, 0.15), 0.85, 0.0),
+    "wool": ((0.85, 0.82, 0.72), 0.95, 0.0), "hoof": ((0.12, 0.10, 0.09), 0.6, 0.0),
+    "fish": ((0.55, 0.57, 0.55), 0.3, 0.3), "hive_yellow": ((0.88, 0.72, 0.30), 0.55, 0.0),
+    "car_red": ((0.55, 0.05, 0.05), 0.25, 0.4),
 }
 
 MAT = {}
@@ -699,61 +883,13 @@ def make_flat_material(key, color, rough, metal=0.0, ior_level=0.5):
     return mat
 
 
-def make_terrain_material(T):
-    """Blender-side splat of grass / dirt / soil by the 'Col' attribute (R = dirt, G = soil).
-    The web viewer rebuilds the same blend in a shader from the helper materials."""
-    mat = bpy.data.materials.new("terrain")
-    nt = node_tree(mat)
-    nodes, links = nt.nodes, nt.links
-    bsdf = principled(nt)
-    attr = nodes.new("ShaderNodeVertexColor")
-    attr.layer_name = "Col"
-    sep = nodes.new("ShaderNodeSeparateColor")
-    links.new(attr.outputs["Color"], sep.inputs["Color"])
-
-    def layer(key, scale):
-        uv = nodes.new("ShaderNodeTexCoord")
-        mp = nodes.new("ShaderNodeMapping")
-        mp.inputs["Scale"].default_value = (scale, scale, 1)
-        links.new(uv.outputs["UV"], mp.inputs["Vector"])
-        out = {}
-        for m in ("color", "orm", "normal"):
-            n = nodes.new("ShaderNodeTexImage")
-            n.image = getattr(T[key], m)
-            links.new(mp.outputs["Vector"], n.inputs["Vector"])
-            out[m] = n.outputs["Color"]
-        return out
-
-    g, d, s = layer("grass", 1.0), layer("dirt", 1.0), layer("soil", TILE["grass"] / TILE["soil"])
-
-    def blend(a, b, c, socket_type="RGBA"):
-        m1 = nodes.new("ShaderNodeMix")
-        m1.data_type = socket_type
-        links.new(sep.outputs["Red"], m1.inputs["Factor"])
-        links.new(a, m1.inputs[6])
-        links.new(b, m1.inputs[7])
-        m2 = nodes.new("ShaderNodeMix")
-        m2.data_type = socket_type
-        links.new(sep.outputs["Green"], m2.inputs["Factor"])
-        links.new(m1.outputs[2], m2.inputs[6])
-        links.new(c, m2.inputs[7])
-        return m2.outputs[2]
-
-    links.new(blend(g["color"], d["color"], s["color"]), bsdf.inputs["Base Color"])
-    orm = nodes.new("ShaderNodeSeparateColor")
-    links.new(blend(g["orm"], d["orm"], s["orm"]), orm.inputs["Color"])
-    links.new(orm.outputs["Green"], bsdf.inputs["Roughness"])
-    nm = nodes.new("ShaderNodeNormalMap")
-    links.new(blend(g["normal"], d["normal"], s["normal"]), nm.inputs["Color"])
-    links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
-    return mat
-
-
 def make_materials(T):
     for key, tex in T.items():
         MAT[key] = make_pbr_material(key, tex, alpha_clip=tex.alpha, double=tex.alpha)
-    MAT["glass"] = make_flat_material("glass", (0.05, 0.07, 0.08), 0.04, 0.0, 1.0)
-    MAT["dark_metal"] = make_flat_material("dark_metal", (0.07, 0.07, 0.07), 0.45, 0.9)
+    for key, (col, rough, metal) in FLAT.items():
+        lin = tuple(c ** 2.2 for c in col)  # sRGB -> linear
+        MAT[key] = make_flat_material(key, lin, rough, metal, 1.0 if key in ("glass", "fish_water") else 0.5)
+    MAT["greenhouse_film"].use_backface_culling = False
     water = make_flat_material("pond_water", (0.06, 0.10, 0.08), 0.03, 0.0, 1.0)
     nt = water.node_tree
     nm_img = nt.nodes.new("ShaderNodeTexImage")
@@ -763,7 +899,6 @@ def make_materials(T):
     nt.links.new(nm_img.outputs["Color"], nm.inputs["Color"])
     nt.links.new(nm.outputs["Normal"], principled(nt).inputs["Normal"])
     MAT["pond_water"] = water
-    MAT["terrain"] = make_terrain_material(T)
 
 
 # ---------------------------------------------------------------------------
@@ -1037,151 +1172,19 @@ def RY(a):
 
 
 # ---------------------------------------------------------------------------
-# Layout: terrain function and masks
+# Assets are modelled at the origin on flat ground (front = -Y, i.e. +Z in three.js);
+# the web editor places them. These keep the older builders working unchanged.
 # ---------------------------------------------------------------------------
 
-POND = (34.0, -27.0, 8.0)
-CORN = (24.0, 54.0, 14.0, 42.0)          # xmin, xmax, ymin, ymax
-PLOWED = (-58.0, -26.0, -56.0, -22.0)
-PADDOCK = (-38.0, -14.0, -4.0, 24.0)
-BARN = (-4.0, 14.0)                       # centre (front gable faces -Y)
-SILO = (5.6, 19.0)
-HOUSE = (23.0, -2.0)
-WINDMILL = (11.0, 28.0)
-
-PATHS = [  # (polyline, width)
-    ([(14, -170), (17, -110), (12, -60), (7, -28), (3, -6)], 4.2),
-    ([(-1, -3), (-4, 4.5)], 4.5),                      # yard -> barn doors
-    ([(9, -3), (16, -9), (23, -10.5)], 2.0),            # yard -> porch
-    ([(-6, -2), (-14, 1.5)], 3.2),                      # yard -> paddock gate
-    ([(9, 2), (15, 8), (20.5, 14), (21, 44)], 3.2),     # track along the corn
-    ([(10, -42), (-10, -38), (-24, -36)], 3.0),         # road -> plowed field
-]
-YARD = (1.0, -1.5, 13.0, 7.5)  # centre x, y, radius x, radius y
-
-
-def _fbm2(x, y, octaves=4):
-    s, a, f = 0.0, 1.0, 1.0
-    for _ in range(octaves):
-        s += a * mnoise.noise(Vector((x * f, y * f, 0.37)))
-        a *= 0.5
-        f *= 2.03
-    return s
-
-
-def terrain_h(x, y):
-    r = math.hypot(x - 2, y - 2)
-    near = 0.35 * math.sin(x * 0.045 + 0.5) * math.cos(y * 0.04 - 0.3) + 0.18 * math.sin(x * 0.09 + y * 0.07 + 1.1)
-    h = near * (0.3 + 0.7 * smoothstep(34, 70, r))
-    hills = 9.0 + 9.0 * _fbm2(x * 0.011 + 4.1, y * 0.011 - 2.3)
-    h += smoothstep(75, 210, r) * hills
-    h += 0.6 * _fbm2(x * 0.03, y * 0.03, 3) * smoothstep(40, 90, r)
-    d = math.hypot(x - POND[0], y - POND[1])
-    h -= 1.5 * (1 - smoothstep(POND[2] - 3, POND[2] + 2.5, d))
-    return h
-
-
-def seg_dist(px, py, ax, ay, bx, by):
-    dx, dy = bx - ax, by - ay
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy + 1e-9)))
-    return math.hypot(px - ax - t * dx, py - ay - t * dy)
-
-
-def rect_mask(x, y, r, soft=1.2):
-    x0, x1, y0, y1 = r
-    dx = max(x0 - x, 0, x - x1)
-    dy = max(y0 - y, 0, y - y1)
-    return 1 - smoothstep(0, soft, math.hypot(dx, dy))
-
-
-def masks(x, y):
-    """(dirt, soil, no_grass) in 0..1 for a ground point."""
-    dirt = 0.0
-    for pts, w in PATHS:
-        for a, b in zip(pts, pts[1:]):
-            d = seg_dist(x, y, a[0], a[1], b[0], b[1])
-            dirt = max(dirt, 1 - smoothstep(w * 0.35, w * 0.65, d))
-    cx, cy, rx, ry = YARD
-    e = math.hypot((x - cx) / rx, (y - cy) / ry)
-    dirt = max(dirt, 1 - smoothstep(0.75, 1.1, e))
-    d = math.hypot(x - POND[0], y - POND[1])
-    dirt = max(dirt, (1 - smoothstep(POND[2] - 1.5, POND[2] + 0.8, d)) * 0.85)  # muddy bank
-    soil = max(rect_mask(x, y, CORN, 1.5), rect_mask(x, y, PLOWED, 1.5))
-    nog = 0.0
-    for (bx, by, hw, hd) in ((BARN[0], BARN[1], 6.8, 9.8), (HOUSE[0], HOUSE[1] - 1.2, 5.6, 5.4),
-                             (SILO[0], SILO[1], 3.0, 3.0), (WINDMILL[0], WINDMILL[1], 1.8, 1.8)):
-        if abs(x - bx) < hw and abs(y - by) < hd:
-            nog = 1.0
-    if d < POND[2] - 0.5:
-        nog = 1.0
-    return dirt, soil, nog
+BARN = SILO = HOUSE = WINDMILL = (0.0, 0.0)
 
 
 def ground(x, y):
-    return terrain_h(x, y)
+    return 0.0
 
 
 def footprint_base(cx, cy, hw, hd):
-    pts = [(cx + sx * hw, cy + sy * hd) for sx in (-1, 0, 1) for sy in (-1, 0, 1)]
-    return min(ground(px, py) for px, py in pts)
-
-
-# ---------------------------------------------------------------------------
-# Terrain, pond
-# ---------------------------------------------------------------------------
-
-TERRAIN_SIZE = 440.0
-TERRAIN_N = 300
-
-
-def build_terrain(coll):
-    mb = MB()
-    N, S = TERRAIN_N, TERRAIN_SIZE
-    bm = mb.bm
-    verts = []
-    cols = []
-    for j in range(N + 1):
-        for i in range(N + 1):
-            x = -S / 2 + S * i / N
-            y = -S / 2 + S * j / N
-            verts.append(bm.verts.new((x, y, ground(x, y))))
-            cols.append(masks(x, y))
-    bm.verts.ensure_lookup_table()
-    mi = mb.mi("terrain")
-    tile = TILE["grass"]
-    for j in range(N):
-        for i in range(N):
-            a = j * (N + 1) + i
-            q = [verts[a], verts[a + 1], verts[a + N + 2], verts[a + N + 1]]
-            f = bm.faces.new(q)
-            f.material_index = mi
-            f.smooth = True
-            for l in f.loops:
-                co = l.vert.co
-                l[mb.uvl].uv = (co.x / tile, co.y / tile)
-    ob = mb.build("Terrain", coll, merge=False)
-    attr = ob.data.color_attributes.new("Col", "FLOAT_COLOR", "POINT")
-    flat = []
-    for d, s, g in cols:
-        flat += [d, s, g, 1.0]
-    attr.data.foreach_set("color", flat)
-    ob.data.color_attributes.active_color = attr
-    ob["terrain_grid"] = N
-    ob["terrain_size"] = S
-    return ob
-
-
-def build_pond(coll):
-    mb = MB()
-    cx, cy, r = POND
-    z = ground(cx + r - 1.0, cy) - 0.12
-    z = min(z, ground(cx, cy + r - 1.0) - 0.12, -0.45)
-    seg = 48
-    pts = [Vector((cx + (r + 0.4) * math.cos(2 * math.pi * k / seg), cy + (r + 0.4) * math.sin(2 * math.pi * k / seg), z))
-           for k in range(seg)]
-    mb.face(pts, "pond_water", [(p.x / 6, p.y / 6) for p in pts])
-    ob = mb.build("Pond_Water", coll)
-    return ob, z
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -1668,7 +1671,9 @@ def set_card_normals(ob, center_fn):
         log(f"custom normals skipped: {e}")
 
 
-def proto_tree(coll, seed, height=10.0, crown=1.0, name="Proto_Tree"):
+def proto_tree(coll, seed, height=10.0, crown=1.0, name="Proto_Tree", leaf_key="leaves", card=(1.0, 1.6),
+               spread=0.55, thick=0.028, trunk=0.42, per_tip=(6, 9), fruit=None, parent=None, twist=1.0):
+    """Branching tree: bark tubes + alpha-tested foliage cards (+ optional fruit spheres)."""
     rng = random.Random(seed)
     wood = MB()
     leaf = MB()
@@ -1679,7 +1684,7 @@ def proto_tree(coll, seed, height=10.0, crown=1.0, name="Proto_Tree"):
         pts = [p]
         cd = d.copy()
         for _ in range(segs):
-            wob = Vector((rng.gauss(0, 0.22), rng.gauss(0, 0.22), rng.gauss(0, 0.1)))
+            wob = Vector((rng.gauss(0, 0.22), rng.gauss(0, 0.22), rng.gauss(0, 0.1))) * twist
             cd = (cd + wob * (0.5 if depth == 0 else 1.0)).normalized()
             if depth >= 2:
                 cd.z -= 0.08
@@ -1710,24 +1715,33 @@ def proto_tree(coll, seed, height=10.0, crown=1.0, name="Proto_Tree"):
         if depth > 0:
             tips.append(pts[-1])
 
-    trunk_len = height * 0.42
-    grow(Vector((0, 0, -0.2)), Vector((0, 0, 1)), trunk_len, height * 0.028, 0)
+    trunk_len = height * trunk
+    grow(Vector((0, 0, -0.2)), Vector((0, 0, 1)), trunk_len, height * thick, 0)
     # foliage cards around branch tips
     cz = sum((t.z for t in tips), 0.0) / max(1, len(tips))
     center = Vector((0, 0, cz))
+    fruit_pts = []
     for t in tips:
-        for _ in range(rng.randint(6, 9)):
-            off = Vector((rng.gauss(0, 0.55), rng.gauss(0, 0.55), rng.gauss(0, 0.4)))
+        for _ in range(rng.randint(*per_tip)):
+            off = Vector((rng.gauss(0, spread), rng.gauss(0, spread), rng.gauss(0, spread * 0.75)))
             c = t + off
             n = (c - center).normalized() * 0.6 + Vector((rng.gauss(0, 0.6), rng.gauss(0, 0.6), rng.gauss(0, 0.6)))
-            leaf.card(c, n.normalized(), rng.uniform(1.0, 1.6), "leaves", rot=rng.uniform(0, 6.28))
-    wood_ob = wood.build(name + "_Wood", coll)
-    leaf_ob = leaf.build(name + "_Leaves", coll, merge=False)
+            leaf.card(c, n.normalized(), rng.uniform(*card), leaf_key, rot=rng.uniform(0, 6.28))
+            if fruit and rng.random() < fruit[1]:
+                fruit_pts.append(c + (c - center).normalized() * 0.25)
+    wood_ob = wood.build(name + "_Wood", coll, parent=parent)
+    if fruit and fruit_pts:
+        fb = MB()
+        for q in fruit_pts:
+            r = rng.uniform(0.045, 0.06)
+            fb.lathe(T_(q), [(0.0, -r), (r * 0.7, -r * 0.7), (r, 0.0), (r * 0.7, r * 0.7), (0.0, r)], 6, fruit[0])
+        fb.build(name + "_Fruit", coll, parent=parent)
+    leaf_ob = leaf.build(name + "_Leaves", coll, merge=False, parent=parent)
     set_card_normals(leaf_ob, lambda co: Vector((0, 0, co.z * 0.3 + cz * 0.7)))
     return wood_ob, leaf_ob
 
 
-def proto_bush(coll, seed, size=1.2):
+def proto_bush(coll, seed, size=1.2, parent=None, leaf_key="leaves"):
     rng = random.Random(seed)
     leaf = MB()
     wood = MB()
@@ -1737,9 +1751,9 @@ def proto_bush(coll, seed, size=1.2):
     for _ in range(int(70 * size)):
         p = Vector((rng.gauss(0, 0.5), rng.gauss(0, 0.5), abs(rng.gauss(0.5, 0.3)))) * size
         n = (p - Vector((0, 0, size * 0.3))).normalized() + Vector((rng.gauss(0, 0.5), rng.gauss(0, 0.5), rng.gauss(0, 0.5)))
-        leaf.card(p, n.normalized(), rng.uniform(0.55, 0.85) * size, "leaves", rot=rng.uniform(0, 6.28))
-    w = wood.build(f"Proto_Bush{seed}_Wood", coll)
-    l = leaf.build(f"Proto_Bush{seed}_Leaves", coll, merge=False)
+        leaf.card(p, n.normalized(), rng.uniform(0.55, 0.85) * size, leaf_key, rot=rng.uniform(0, 6.28))
+    w = wood.build(f"Proto_Bush{seed}_Wood", coll, parent=parent)
+    l = leaf.build(f"Proto_Bush{seed}_Leaves", coll, merge=False, parent=parent)
     set_card_normals(l, lambda co: Vector((0, 0, size * 0.25)))
     return w, l
 
@@ -1838,7 +1852,989 @@ def proto_rock(coll, seed, size=1.0):
 
 
 # ---------------------------------------------------------------------------
-# Scene assembly
+# Shared builders for the asset library
+# ---------------------------------------------------------------------------
+
+def ellipsoid(mb, M, rx, ry, rz, key, seg=10, rings=6):
+    prof = [(math.sin(t), -math.cos(t)) for t in np.linspace(0, math.pi, rings + 1)]
+    mb.lathe(M @ Matrix.Diagonal((rx, ry, rz, 1.0)), prof, seg, key)
+
+
+def cylinder(mb, M, r, h, key, seg=16, caps=True, cap_key=None, smooth=True):
+    mb.lathe(M, [(r, 0.0), (r, h)], seg, key, smooth=smooth, cap0=caps, cap1=caps, cap_key=cap_key)
+
+
+def quad_uv(mb, pts, key, flip=False):
+    uv = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    mb.face(list(reversed(pts)) if flip else pts, key, list(reversed(uv)) if flip else uv)
+
+
+def gable_roof(mb, W, L, z, pitch, key, ovh=0.5, t=0.08, fascia="trim", ridge_key=None):
+    """Two roof slabs, ridge along local Y over a W (x) by L (y) footprint, eaves at height z."""
+    rise = (W / 2) * math.tan(pitch)
+    for s in (-1, 1):
+        A = Vector((s * W / 2, 0, z))
+        B = Vector((0, 0, z + rise))
+        d = (B - A).normalized()
+        n = Vector((s * abs(d.z), 0, abs(d.x)))
+        A2 = A - d * ovh + n * (t / 2 + 0.01)
+        B2 = B + d * 0.04 + n * (t / 2 + 0.01)
+        cols = (d, Vector((0, 1, 0)), n)
+        R = Matrix(cols).transposed()
+        if R.determinant() < 0:
+            R = Matrix((d, Vector((0, -1, 0)), n)).transposed()
+        mb.box(T_((A2 + B2) / 2) @ R.to_4x4(), ((B2 - A2).length, L + 2 * ovh, t), key)
+        if fascia:
+            mb.beam(A2 - n * 0.06 + Vector((0, -L / 2 - ovh, 0)), A2 - n * 0.06 + Vector((0, L / 2 + ovh, 0)), 0.04, 0.18, fascia, up=n)
+    mb.beam((0, -L / 2 - ovh, z + rise + 0.07), (0, L / 2 + ovh, z + rise + 0.07), 0.3, 0.06, ridge_key or key, grain=False)
+    return rise
+
+
+def gable_wall(mb, M, W, H, rise, key, t=0.2):
+    """End wall with a triangular gable, in the local XZ plane centred on M."""
+    prof = [(-W / 2, 0), (W / 2, 0), (W / 2, H), (0, H + rise), (-W / 2, H)]
+    mb.prism(M, prof, -t / 2, t / 2, key)
+
+
+def chicken(mb, M, key="feather_white", rng=None):
+    rng = rng or random
+    B = M @ RZ(rng.uniform(-0.5, 0.5))
+    ellipsoid(mb, B @ T_((0, 0, 0.27)), 0.11, 0.17, 0.12, key, 10, 6)
+    ellipsoid(mb, B @ T_((0, 0.15, 0.36)) @ RX(-0.6), 0.05, 0.06, 0.1, key, 8, 4)
+    ellipsoid(mb, B @ T_((0, -0.15, 0.43)), 0.06, 0.065, 0.065, key, 8, 5)
+    ellipsoid(mb, B @ T_((0, -0.15, 0.5)), 0.012, 0.04, 0.03, "comb_red", 6, 3)
+    ellipsoid(mb, B @ T_((0, -0.2, 0.38)), 0.012, 0.015, 0.025, "comb_red", 6, 3)
+    mb.lathe(B @ T_((0, -0.2, 0.43)) @ RX(math.pi / 2), [(0.016, 0.0), (0.0, 0.045)], 5, "beak")
+    for x in (-0.04, 0.04):
+        cylinder(mb, B @ T_((x, 0.0, 0.0)), 0.009, 0.17, "beak", 5, caps=False)
+
+
+def goat(mb, M, coat="goat_white", wool=False, rng=None):
+    rng = rng or random
+    B = M @ RZ(rng.uniform(-0.6, 0.6))
+    body = "wool" if wool else coat
+    if wool:
+        ellipsoid(mb, B @ T_((0, 0, 0.78)), 0.3, 0.52, 0.32, body, 12, 7)
+    else:
+        ellipsoid(mb, B @ T_((0, 0, 0.78)), 0.21, 0.48, 0.25, body, 12, 7)
+    mb.tube([B @ Vector((0, -0.36, 0.86)), B @ Vector((0, -0.5, 1.02)), B @ Vector((0, -0.56, 1.12))], [0.1, 0.085, 0.075], 7, coat)
+    head = B @ T_((0, -0.63, 1.12)) @ RX(0.55)
+    ellipsoid(mb, head, 0.085, 0.16, 0.095, coat if not wool else "hoof", 10, 5)
+    for s in (-1, 1):
+        ellipsoid(mb, B @ T_((s * 0.1, -0.56, 1.16)) @ RY(s * 0.6), 0.02, 0.05, 0.08, coat if not wool else "hoof", 6, 3)
+        if not wool:
+            mb.tube([B @ Vector((s * 0.035, -0.6, 1.2)), B @ Vector((s * 0.06, -0.55, 1.33)), B @ Vector((s * 0.08, -0.45, 1.36))],
+                    [0.018, 0.012, 0.004], 5, "hoof")
+    for x in (-0.12, 0.12):
+        for y in (-0.33, 0.3):
+            mb.tube([B @ Vector((x, y, 0.62)), B @ Vector((x, y + 0.02, 0.3)), B @ Vector((x, y, 0.06))], [0.045, 0.03, 0.028], 6, coat)
+            cylinder(mb, B @ T_((x, y, 0.0)), 0.03, 0.07, "hoof", 6)
+    ellipsoid(mb, B @ T_((0, 0.47, 0.92)) @ RX(0.7), 0.04, 0.03, 0.08, body, 6, 3)
+    if not wool:
+        ellipsoid(mb, B @ T_((0, -0.73, 0.98)), 0.025, 0.03, 0.06, "hoof", 6, 3)
+
+
+def lettuce(mb, M, key="lettuce", size=1.0, rng=None):
+    rng = rng or random
+    up = Vector((0, 0, 1))
+    for k in range(8):
+        a = k * 2.4 + rng.uniform(0, 0.4)
+        d = Vector((math.cos(a), math.sin(a), 0))
+        side = Vector((-d.y, d.x, 0))
+        r0 = 0.02 * size
+        r1 = rng.uniform(0.1, 0.14) * size
+        h = rng.uniform(0.07, 0.12) * size
+        w = 0.07 * size
+        pts = [d * r0 - side * w * 0.3, d * r0 + side * w * 0.3, d * r1 + side * w + up * h, d * r1 - side * w + up * h]
+        mb.face([M @ p for p in pts], key, [(0.3, 0), (0.7, 0), (1, 1), (0, 1)])
+    ellipsoid(mb, M @ T_((0, 0, 0.05 * size)), 0.06 * size, 0.06 * size, 0.06 * size, key, 7, 4)
+
+
+def cabbage(mb, M, rng=None):
+    rng = rng or random
+    ellipsoid(mb, M @ T_((0, 0, 0.1)), 0.11, 0.11, 0.1, "cabbage", 9, 5)
+    for k in range(6):
+        a = k * 1.05 + rng.uniform(0, 0.3)
+        d = Vector((math.cos(a), math.sin(a), 0))
+        side = Vector((-d.y, d.x, 0))
+        pts = [d * 0.05 - side * 0.05, d * 0.05 + side * 0.05, d * 0.24 + side * 0.11 + Vector((0, 0, 0.08)),
+               d * 0.24 - side * 0.11 + Vector((0, 0, 0.08))]
+        mb.face([M @ p for p in pts], "cabbage", [(0.3, 0), (0.7, 0), (1, 1), (0, 1)])
+
+
+def tomato_plant(mb, M, rng=None):
+    rng = rng or random
+    mb.box(M @ T_((0, 0, 0.7)), (0.025, 0.025, 1.4), "old_wood", grain=True)
+    for k in range(9):
+        c = M @ Vector((rng.gauss(0, 0.13), rng.gauss(0, 0.13), rng.uniform(0.25, 1.25)))
+        n = Vector((rng.gauss(0, 1), rng.gauss(0, 1), rng.gauss(0.5, 1))).normalized()
+        mb.card(c, n, rng.uniform(0.3, 0.42), "leaves", rot=rng.uniform(0, 6.28))
+    for k in range(7):
+        c = M @ Vector((rng.gauss(0, 0.12), rng.gauss(0, 0.12), rng.uniform(0.35, 1.1)))
+        r = rng.uniform(0.03, 0.045)
+        ellipsoid(mb, T_(c), r, r, r * 0.9, "tomato" if rng.random() < 0.75 else "lettuce", 7, 4)
+
+
+def onion_greens(mb, M, rng=None):
+    rng = rng or random
+    for k in range(7):
+        a = rng.uniform(0, 6.28)
+        d = Vector((math.cos(a), math.sin(a), 0))
+        base = M @ Vector((rng.gauss(0, 0.02), rng.gauss(0, 0.02), 0.0))
+        leaf_strip(mb, base, d, rng.uniform(0.25, 0.4), 0.02, droop=rng.uniform(0.0, 0.6), segs=3, rise=1.2)
+
+
+def flower_clump(mb, M, key="flower_yellow", rng=None):
+    rng = rng or random
+    for k in range(5):
+        c = M @ Vector((rng.gauss(0, 0.08), rng.gauss(0, 0.08), rng.uniform(0.1, 0.25)))
+        n = Vector((rng.gauss(0, 1), rng.gauss(0, 1), 1.0)).normalized()
+        mb.card(c, n, 0.25, "leaves", rot=rng.uniform(0, 6.28))
+    for k in range(6):
+        c = M @ Vector((rng.gauss(0, 0.09), rng.gauss(0, 0.09), rng.uniform(0.25, 0.38)))
+        ellipsoid(mb, T_(c), 0.035, 0.035, 0.02, key, 7, 3)
+
+
+# ---------------------------------------------------------------------------
+# Asset library
+# ---------------------------------------------------------------------------
+
+ASSETS = []  # (id, label, category, clear_grass, builder(coll))
+
+
+def asset(aid, label, category, clear_grass=True):
+    def deco(fn):
+        ASSETS.append((aid, label, category, clear_grass, fn))
+        return fn
+    return deco
+
+
+def join_parts(name, coll, parts):
+    """Merge (mesh, matrix) pairs into one mesh object (keeps per-face materials)."""
+    bm = bmesh.new()
+    mats = []
+    for me, M in parts:
+        tmp = bmesh.new()
+        tmp.from_mesh(me)
+        remap = []
+        for m in me.materials:
+            if m not in mats:
+                mats.append(m)
+            remap.append(mats.index(m))
+        for f in tmp.faces:
+            f.material_index = remap[f.material_index] if remap else 0
+        bmesh.ops.transform(tmp, matrix=M, verts=tmp.verts)
+        tmp_me = bpy.data.meshes.new("tmp")
+        tmp.to_mesh(tmp_me)
+        tmp.free()
+        bm.from_mesh(tmp_me)
+        bpy.data.meshes.remove(tmp_me)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    for m in mats:
+        me.materials.append(m)
+    ob = bpy.data.objects.new(name, me)
+    coll.objects.link(ob)
+    return ob
+
+
+# -- classic farm ------------------------------------------------------------
+
+@asset("barn", "Red barn", "Buildings")
+def a_barn(c):
+    build_barn(c)
+
+
+@asset("silo", "Grain silo", "Buildings")
+def a_silo(c):
+    build_silo(c)
+
+
+@asset("farmhouse", "Farmhouse (classic)", "Buildings")
+def a_farmhouse(c):
+    build_house(c)
+
+
+@asset("windmill", "Water windmill", "Energy & water")
+def a_windmill(c):
+    build_windmill(c)
+
+
+# -- modern buildings ----------------------------------------------------------
+
+@asset("house_modern", "Modern house", "Buildings")
+def a_house_modern(c):
+    mb = MB()
+    W, D, H, base = 16.0, 11.0, 3.3, 0.45
+    mb.box(T_((0, 0, base / 2 - 0.1)), (W + 0.3, D + 0.3, base + 0.2), "concrete")
+    mb.box(T_((0, 0, base + H / 2)), (W, D, H), "stucco")
+    # hip roof
+    o = 0.7
+    ez = base + H
+    rz = ez + (D / 2 + o) * math.tan(math.radians(24))
+    E = [Vector((-W / 2 - o, -D / 2 - o, ez)), Vector((W / 2 + o, -D / 2 - o, ez)),
+         Vector((W / 2 + o, D / 2 + o, ez)), Vector((-W / 2 - o, D / 2 + o, ez))]
+    R0, R1 = Vector((-(W - D) / 2, 0, rz)), Vector(((W - D) / 2, 0, rz))
+    for pts in ([E[0], E[1], R1, R0], [E[1], E[2], R1], [E[2], E[3], R0, R1], [E[3], E[0], R0]):
+        mb.face(pts, "shingles")
+    mb.face(list(reversed(E)), "stucco")  # soffit
+    for i in range(4):
+        a, b = E[i], E[(i + 1) % 4]
+        mb.beam(a + Vector((0, 0, -0.1)), b + Vector((0, 0, -0.1)), 0.06, 0.22, "dark_metal", grain=False)
+    for p, q in ((E[0], R0), (E[1], R1), (E[2], R1), (E[3], R0)):
+        mb.beam(p + Vector((0, 0, 0.04)), q + Vector((0, 0, 0.04)), 0.14, 0.05, "shingles", grain=False)
+    mb.beam(R0 + Vector((0, 0, 0.04)), R1 + Vector((0, 0, 0.04)), 0.22, 0.06, "shingles", grain=False)
+    # windows and doors
+    front = T_((0, -D / 2, base)) @ RZ(math.pi)
+    window(mb, front @ T_((0.2, 0, 1.15)), 2.6, 2.2, 3, 1, frame_key="dark_metal")
+    mb.box(front @ T_((-2.4, 0.04, 1.15)), (1.1, 0.08, 2.3), "dark_wood", grain=True)
+    for x in (-5.8, 4.6):
+        window(mb, front @ T_((x, 0, 1.7)), 1.8, 1.4, 2, 1, frame_key="dark_metal")
+    back = T_((0, D / 2, base))
+    for x in (-5.0, -1.0, 3.0, 6.0):
+        window(mb, back @ T_((x, 0, 1.7)), 1.5, 1.3, 2, 1, frame_key="dark_metal")
+    for s in (-1, 1):
+        side = T_((s * W / 2, 0, base)) @ RZ(-s * math.pi / 2)
+        for yy in (-2.5, 2.5):
+            window(mb, side @ T_((yy, 0, 1.7)), 1.5, 1.3, 2, 1, frame_key="dark_metal")
+    # covered terrace with a flat roof
+    tz = base + 2.9
+    mb.box(T_((1.0, -D / 2 - 1.8, base - 0.05)), (9.0, 3.6, 0.15), "concrete")
+    for x in (-3.3, 1.0, 5.3):
+        mb.box(T_((x, -D / 2 - 3.4, base + 1.45)), (0.16, 0.16, 2.9), "dark_metal")
+    mb.box(T_((1.0, -D / 2 - 1.8, tz + 0.1)), (9.4, 3.9, 0.2), "stucco")
+    mb.box(T_((1.0, -D / 2 - 3.72, tz + 0.12)), (9.4, 0.06, 0.26), "dark_metal")
+    # rooftop solar water heater
+    M = T_((3.5, 2.0, rz - 2.0 * math.tan(math.radians(24)) + 0.12)) @ RX(math.radians(-24))
+    mb.box(M @ T_((0, 0, 0.05)), (2.0, 1.2, 0.08), "galv")
+    mb.face([M @ Vector((-0.95, -0.55, 0.1)), M @ Vector((0.95, -0.55, 0.1)), M @ Vector((0.95, 0.55, 0.1)), M @ Vector((-0.95, 0.55, 0.1))],
+            "solar", [(0, 0), (1, 0), (1, 1), (0, 1)])
+    mb.lathe(T_((2.5, 2.9, rz - 0.75)) @ RY(math.pi / 2), [(0.25, 0), (0.25, 2.0)], 12, "pvc", cap0=True, cap1=True)
+    mb.build("ModernHouse", c)
+
+
+@asset("poultry_house", "Poultry house", "Livestock")
+def a_poultry(c):
+    mb = MB()
+    W, L = 9.0, 24.0
+    mb.box(T_((0, 0, 0.1)), (W + 0.2, L + 0.2, 0.3), "concrete")
+    mb.box(T_((0, 0, 0.255)), (W - 0.3, L - 0.3, 0.02), "straw")
+    H = 2.8
+    for s in (-1, 1):
+        mb.box(T_((s * W / 2, 0, 0.75)), (0.2, L, 0.9), "stucco")
+        mb.face([Vector((s * W / 2, -L / 2 * s, 1.2)), Vector((s * W / 2, L / 2 * s, 1.2)),
+                 Vector((s * W / 2, L / 2 * s, H + 0.25)), Vector((s * W / 2, -L / 2 * s, H + 0.25))], "mesh_fence")
+        for y in np.arange(-L / 2, L / 2 + 0.1, 3.0):
+            mb.box(T_((s * W / 2, y, (H + 0.3) / 2 + 0.1)), (0.12, 0.12, H + 0.1), "galv")
+        mb.box(T_((s * W / 2, 0, H + 0.2)), (0.16, L, 0.14), "galv")
+    rise = gable_roof(mb, W, L, H + 0.25, math.radians(18), "roof_gray", ovh=0.6, fascia="galv")
+    for s in (-1, 1):
+        gable_wall(mb, T_((0, s * L / 2, 0.25)), W + 0.2, H, rise, "stucco")
+    front = T_((0, -L / 2 - 0.1, 0.25)) @ RZ(math.pi)
+    mb.box(front @ T_((0, 0.03, 1.05)), (1.4, 0.06, 2.1), "galv")
+    window(mb, front @ T_((2.6, 0, 1.6)), 0.8, 0.6, 2, 1, frame_key="galv")
+    # feeder and drinker lines inside
+    for x in (-2.0, 2.0):
+        mb.beam((x, -L / 2 + 1, 0.55), (x, L / 2 - 1, 0.55), 0.05, 0.05, "galv")
+        for y in np.arange(-L / 2 + 1.5, L / 2 - 1, 1.5):
+            mb.lathe(T_((x, y, 0.3)), [(0.0, 0.0), (0.18, 0.05), (0.18, 0.1), (0.04, 0.2), (0.03, 0.25)], 10, "pvc")
+    rng = random.Random(5)
+    for k in range(40):
+        chicken(mb, T_((rng.uniform(-3.8, 3.8), rng.uniform(-L / 2 + 1, L / 2 - 1), 0.26)) @ RZ(rng.uniform(0, 6.28)),
+                "feather_white" if rng.random() < 0.8 else "feather_brown", rng)
+    mb.build("PoultryHouse", c)
+
+
+@asset("livestock_shed", "Livestock shed (open)", "Livestock")
+def a_shed_livestock(c):
+    mb = MB()
+    W, D = 20.0, 7.0
+    mb.box(T_((0, 0, 0.05)), (W, D, 0.15), "concrete")
+    mb.box(T_((0, 0.4, 0.14)), (W - 0.4, D - 1.0, 0.03), "straw")
+    hf, hb = 3.4, 2.6
+    for z in np.arange(0.2, hb, 0.24):
+        mb.box(T_((0, D / 2, z + 0.1)), (W, 0.06, 0.2), "old_wood", grain=True)
+        for s in (-1, 1):
+            zz = z + 0.1
+            mb.box(T_((s * W / 2, 0.5, zz)), (0.06, D - 1.0, 0.2), "old_wood", grain=True)
+    for x in np.arange(-W / 2, W / 2 + 0.1, 4.0):
+        mb.box(T_((x, -D / 2 + 0.2, hf / 2)), (0.2, 0.2, hf), "old_wood", grain=True)
+        mb.box(T_((x, D / 2 - 0.1, hb / 2)), (0.2, 0.2, hb), "old_wood", grain=True)
+    mb.beam((-W / 2 - 0.2, -D / 2 + 0.2, hf), (W / 2 + 0.2, -D / 2 + 0.2, hf), 0.22, 0.25, "old_wood")
+    A = Vector((0, -D / 2 - 0.8, hf + 0.2))
+    B = Vector((0, D / 2 + 0.5, hb + 0.1))
+    d = (B - A).normalized()
+    n = Vector((0, -d.z, d.y)) if d.y > 0 else Vector((0, d.z, -d.y))
+    if n.z < 0:
+        n = -n
+    R = Matrix((Vector((1, 0, 0)), d, n)).transposed()
+    if R.determinant() < 0:
+        R = Matrix((Vector((-1, 0, 0)), d, n)).transposed()
+    mb.box(T_((A + B) / 2) @ R.to_4x4(), (W + 0.8, (B - A).length, 0.07), "roof_gray")
+    # feed trough along the front and a hay rack at the back
+    mb.lathe(T_((-W / 2 + 1, -D / 2 + 0.9, 0.55)) @ RY(math.pi / 2), [(0.3, 0), (0.3, W - 2)], 12, "galv", a0=0, a1=math.pi)
+    for x in np.arange(-W / 2 + 1.5, W / 2 - 1, 3.0):
+        mb.box(T_((x, -D / 2 + 0.9, 0.25)), (0.08, 0.5, 0.35), "galv")
+    mb.box(T_((0, D / 2 - 0.5, 1.4)), (W - 2, 0.5, 0.6), "straw")
+    rng = random.Random(9)
+    for k in range(8):
+        goat(mb, T_((rng.uniform(-8, 8), rng.uniform(-1.5, 2.2), 0.15)) @ RZ(rng.uniform(0, 6.28)),
+             "goat_white" if rng.random() < 0.6 else "goat_brown", wool=rng.random() < 0.3, rng=rng)
+    mb.build("LivestockShed", c)
+
+
+@asset("storage_shed", "Storage / pump house", "Buildings")
+def a_storage(c):
+    mb = MB()
+    W, L, H = 4.0, 5.0, 2.7
+    mb.box(T_((0, 0, 0.05)), (W + 0.3, L + 0.3, 0.2), "concrete")
+    mb.box(T_((0, 0, 0.15 + H / 2)), (W, L, H), "stucco")
+    rise = gable_roof(mb, W, L, H + 0.15, math.radians(20), "roof_gray", ovh=0.35, fascia="galv")
+    for s in (-1, 1):
+        mb.prism(T_((0, s * (L / 2), H + 0.15)), [(-W / 2, 0), (W / 2, 0), (0, rise)], -0.01, 0.01, "stucco")
+    front = T_((0, -L / 2, 0.15)) @ RZ(math.pi)
+    mb.box(front @ T_((0.6, 0.03, 1.05)), (1.2, 0.06, 2.1), "galv")
+    window(mb, front @ T_((-1.1, 0, 1.6)), 0.7, 0.6, 2, 1, frame_key="galv")
+    mb.build("StorageShed", c)
+
+
+@asset("greenhouse", "Hydroponic greenhouse", "Crops")
+def a_greenhouse(c):
+    mb = MB()
+    W, L = 9.0, 24.0
+    side_h, ridge = 2.4, 4.6
+    arch = [(-W / 2, 0.0), (-W / 2, side_h)] + [(-W / 2 * math.cos(math.pi * t), side_h + (ridge - side_h) * math.sin(math.pi * t))
+                                                for t in np.linspace(0, 1, 13)[1:-1]] + [(W / 2, side_h), (W / 2, 0.0)]
+    prof = list(reversed(arch))  # CCW in x/z
+    mb.box(T_((0, 0, 0.04)), (W, L, 0.1), "gravel")
+    mb.prism(Matrix.Identity(4), prof, -L / 2, L / 2, "greenhouse_film", skip=(len(prof) - 1,))
+    for y in np.arange(-L / 2, L / 2 + 0.1, 2.0):
+        mb.tube([Vector((x, y, z)) for x, z in arch], [0.035] * len(arch), 6, "galv")
+    for x in (-W / 2, W / 2):
+        mb.beam((x, -L / 2, side_h), (x, L / 2, side_h), 0.05, 0.05, "galv")
+    mb.beam((0, -L / 2, ridge), (0, L / 2, ridge), 0.06, 0.06, "galv")
+    for s in (-1, 1):  # door frames
+        y = s * L / 2
+        for x in (-0.8, 0.8):
+            mb.beam((x, y, 0), (x, y, 2.3), 0.07, 0.07, "galv")
+        mb.beam((-0.8, y, 2.3), (0.8, y, 2.3), 0.07, 0.07, "galv")
+    # NFT channels on tables, with lettuce
+    rng = random.Random(21)
+    for tx in (-2.9, 0.0, 2.9):
+        for y in np.arange(-L / 2 + 1.5, L / 2 - 1.4, 2.0):
+            for x in (tx - 0.8, tx + 0.8):
+                mb.beam((x, y, 0.0), (x, y, 0.85), 0.05, 0.05, "galv")
+        for k in range(6):
+            x = tx - 0.9 + k * 0.36
+            mb.box(T_((x, 0, 0.92)), (0.12, L - 2.6, 0.08), "pvc")
+            for y in np.arange(-L / 2 + 1.5, L / 2 - 1.3, 0.3):
+                lettuce(mb, T_((x, y, 0.96)) @ RZ(rng.uniform(0, 6.28)), "lettuce" if k % 3 else "lettuce_red",
+                        size=rng.uniform(0.8, 1.05), rng=rng)
+    mb.lathe(T_((W / 2 - 1.0, L / 2 - 1.2, 0.05)), [(0.55, 0), (0.55, 1.1), (0.0, 1.15)], 16, "poly_black")
+    mb.beam((W / 2 - 1.0, L / 2 - 1.2, 0.9), (2.9, L / 2 - 1.2, 0.9), 0.05, 0.05, "pipe_blue")
+    mb.beam((-2.9, L / 2 - 1.2, 0.9), (2.9, L / 2 - 1.2, 0.9), 0.05, 0.05, "pipe_blue")
+    mb.build("Greenhouse", c)
+
+
+@asset("feed_bin", "Feed bin", "Livestock")
+def a_feed_bin(c):
+    mb = MB()
+    R = 1.3
+    prof = [(0.15, 1.6), (R, 3.0), (R, 6.4), (0.25, 7.3), (0.0, 7.35)]
+    mb.lathe(Matrix.Identity(4), prof, 24, "silo_metal", cap0=True)
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        p = Vector((math.cos(a) * R, math.sin(a) * R, 0))
+        mb.beam(p * 1.05 + Vector((0, 0, 0)), p * 0.98 + Vector((0, 0, 3.1)), 0.1, 0.1, "galv")
+    mb.lathe(T_((0, 0, 1.0)), [(0.08, 0), (0.08, 0.6)], 8, "galv")
+    mb.beam((0, 0, 1.2), (0, -3.0, 0.6), 0.1, 0.1, "galv")
+    mb.build("FeedBin", c)
+
+
+# -- water -----------------------------------------------------------------------
+
+@asset("fish_pond", "Fish pond (aquaculture)", "Water")
+def a_fish_pond(c):
+    mb = MB()
+    W, D = 14.0, 9.0
+    rim = 0.4
+    for x, y, w, d in ((0, -D / 2, W + rim, rim), (0, D / 2, W + rim, rim), (-W / 2, 0, rim, D + rim), (W / 2, 0, rim, D + rim)):
+        mb.box(T_((x, y, -0.3)), (w, d, 1.5), "concrete")
+    mb.face([Vector((-W / 2, -D / 2, 0.01)), Vector((W / 2, -D / 2, 0.01)), Vector((W / 2, D / 2, 0.01)), Vector((-W / 2, D / 2, 0.01))], "pond_bottom")
+    rng = random.Random(31)
+    for k in range(26):
+        M = T_((rng.uniform(-W / 2 + 1, W / 2 - 1), rng.uniform(-D / 2 + 1, D / 2 - 1), rng.uniform(0.06, 0.16))) @ RZ(rng.uniform(0, 6.28))
+        ellipsoid(mb, M, 0.06, 0.22, 0.07, "fish", 7, 4)
+        mb.face([M @ Vector((0, 0.2, 0)), M @ Vector((0.0, 0.33, 0.07)), M @ Vector((0.0, 0.33, -0.07))], "fish")
+    water = [Vector((-W / 2, -D / 2, 0.25)), Vector((W / 2, -D / 2, 0.25)), Vector((W / 2, D / 2, 0.25)), Vector((-W / 2, D / 2, 0.25))]
+    mb.face(water, "fish_water", [(p.x / 3, p.y / 3) for p in water])
+    # paddle-wheel aerator on floats
+    ax, ay = W / 2 - 2.2, -D / 2 + 1.8
+    for s in (-1, 1):
+        mb.lathe(T_((ax + s * 0.7, ay - 0.7, 0.25)) @ RX(-math.pi / 2), [(0.0, 0), (0.17, 0.15), (0.17, 1.25), (0.0, 1.4)], 10, "pvc")
+    mb.box(T_((ax, ay, 0.62)), (1.6, 0.12, 0.08), "galv")
+    mb.box(T_((ax - 1.0, ay, 0.62)), (0.35, 0.3, 0.3), "pipe_blue")
+    mb.build("FishPond", c)
+    rotor = empty("Aerator_Rotor", c, (ax, ay, 0.45))
+    rotor.rotation_euler = (0, math.pi / 2, 0)
+    rb = MB()
+    rb.lathe(T_((0, 0, -0.55)), [(0.06, 0), (0.06, 1.1)], 8, "galv")
+    for k in range(8):
+        a = k * math.pi / 4
+        d = Vector((math.cos(a), math.sin(a), 0))
+        tg = Vector((-d.y, d.x, 0))
+        R = Matrix((d, tg, Vector((0, 0, 1)))).transposed().to_4x4()
+        rb.box(T_(d * 0.25) @ R, (0.28, 0.03, 0.9), "pvc")
+    rb.build("Aerator_RotorMesh", c, parent=rotor)
+
+
+@asset("water_tower", "Elevated water tank", "Water")
+def a_water_tower(c):
+    mb = MB()
+    Hs = 6.0
+    b, t = 1.3, 1.0
+    legs = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    for sx, sy in legs:
+        mb.beam((sx * b, sy * b, -0.2), (sx * t, sy * t, Hs), 0.12, 0.12, "galv")
+        mb.box(T_((sx * b, sy * b, 0.0)), (0.5, 0.5, 0.3), "concrete")
+    for z0, z1 in ((0.3, 3.0), (3.0, Hs)):
+        w0 = b + (t - b) * z0 / Hs
+        w1 = b + (t - b) * z1 / Hs
+        for k in range(4):
+            a, d = legs[k], legs[(k + 1) % 4]
+            mb.beam((a[0] * w0, a[1] * w0, z0), (d[0] * w1, d[1] * w1, z1), 0.05, 0.05, "galv")
+            mb.beam((d[0] * w0, d[1] * w0, z0), (a[0] * w1, a[1] * w1, z1), 0.05, 0.05, "galv")
+            mb.beam((a[0] * w1, a[1] * w1, z1), (d[0] * w1, d[1] * w1, z1), 0.08, 0.08, "galv")
+    mb.box(T_((0, 0, Hs + 0.06)), (2.6, 2.6, 0.12), "galv")
+    prof = [(1.25, 0), (1.28, 0.1), (1.28, 2.3), (1.1, 2.55), (0.3, 2.68), (0.3, 2.8), (0.0, 2.82)]
+    mb.lathe(T_((0, 0, Hs + 0.12)), prof, 24, "poly_black", cap0=True)
+    for z in (0.6, 1.2, 1.8):
+        mb.lathe(T_((0, 0, Hs + 0.12 + z)), [(1.28, -0.04), (1.31, 0.0), (1.28, 0.04)], 24, "poly_black")
+    mb.tube([Vector((0.5, 0, Hs + 0.1)), Vector((0.5, 0, 0.3)), Vector((0.5, -2.5, 0.05))], [0.05] * 3, 8, "pipe_blue", smooth=False)
+    mb.build("WaterTower", c)
+
+
+@asset("water_tank", "Rainwater tank", "Water")
+def a_water_tank(c):
+    mb = MB()
+    mb.lathe(Matrix.Identity(4), [(1.6, -0.1), (1.6, 0.15), (0.0, 0.16)], 24, "concrete")
+    prof = [(1.3, 0.15), (1.33, 0.25), (1.33, 2.2), (1.15, 2.45), (0.25, 2.55), (0.25, 2.7), (0, 2.72)]
+    mb.lathe(Matrix.Identity(4), prof, 24, "poly_green")
+    for z in np.arange(0.5, 2.2, 0.4):
+        mb.lathe(T_((0, 0, z)), [(1.33, -0.03), (1.36, 0.0), (1.33, 0.03)], 24, "poly_green")
+    mb.tube([Vector((0, -1.3, 0.4)), Vector((0, -1.6, 0.4)), Vector((0, -1.6, 0.2))], [0.04] * 3, 8, "pipe_blue", smooth=False)
+    mb.tube([Vector((1.0, 0.8, 2.4)), Vector((1.6, 1.2, 2.6)), Vector((2.2, 1.6, 3.0))], [0.06] * 3, 8, "pvc", smooth=False)
+    mb.build("WaterTank", c)
+
+
+@asset("natural_pond", "Natural pond", "Water")
+def a_natural_pond(c):
+    mb = MB()
+    rng = random.Random(41)
+    seg = 40
+    rad = [7.0 + 1.2 * math.sin(3 * k * 2 * math.pi / seg + 1) + 0.6 * math.sin(5 * k * 2 * math.pi / seg) for k in range(seg)]
+    pts = [Vector((r * math.cos(2 * math.pi * k / seg), r * 0.75 * math.sin(2 * math.pi * k / seg), 0.06)) for k, r in enumerate(rad)]
+    mb.face(pts, "pond_water", [(p.x / 6, p.y / 6) for p in pts])
+    for k in range(seg):  # muddy bank
+        a, b = pts[k], pts[(k + 1) % seg]
+        ao, bo = a * 1.12, b * 1.12
+        ao.z = bo.z = 0.02
+        mb.face([a, ao, bo, b], "dirt")
+    mb.build("NaturalPond", c)
+    for k in range(10):
+        a = rng.uniform(0, 6.28)
+        rr = 6.8 + rng.uniform(-0.3, 1.0)
+        src = proto_reeds(c, 500 + k % 2)
+        src.location = (rr * math.cos(a), rr * 0.75 * math.sin(a), 0)
+
+
+# -- energy ------------------------------------------------------------------------
+
+@asset("solar_array", "Solar panels", "Energy & water", clear_grass=False)
+def a_solar(c):
+    mb = MB()
+    tilt = math.radians(28)
+    cols, rows = 6, 2
+    pw, ph = 1.0, 1.7
+    zc = 1.3
+    R = RX(tilt)
+    for ci in range(cols):
+        for ri in range(rows):
+            x = (ci - (cols - 1) / 2) * (pw + 0.03)
+            sl = (ri - (rows - 1) / 2) * (ph + 0.03)
+            M = T_((x, sl * math.cos(tilt), zc + sl * math.sin(tilt))) @ R
+            mb.box(M, (pw, ph, 0.04), "galv", faces="xXyYz")
+            mb.face([M @ Vector((-pw / 2, -ph / 2, 0.021)), M @ Vector((pw / 2, -ph / 2, 0.021)),
+                     M @ Vector((pw / 2, ph / 2, 0.021)), M @ Vector((-pw / 2, ph / 2, 0.021))], "solar",
+                    [(0, 0), (1, 0), (1, 1), (0, 1)])
+    half = (rows * (ph + 0.03)) / 2
+    yf, zf = -half * math.cos(tilt), zc - half * math.sin(tilt)
+    yb, zb = half * math.cos(tilt), zc + half * math.sin(tilt)
+    W = cols * (pw + 0.03)
+    for x in np.linspace(-W / 2 + 0.3, W / 2 - 0.3, 4):
+        mb.beam((x, yf + 0.2, -0.2), (x, yf + 0.2, zf + 0.05), 0.07, 0.07, "galv")
+        mb.beam((x, yb - 0.2, -0.2), (x, yb - 0.2, zb - 0.1), 0.07, 0.07, "galv")
+        mb.beam((x, yf + 0.1, zf - 0.02), (x, yb - 0.1, zb - 0.07), 0.06, 0.08, "galv")
+        mb.beam((x, yf + 0.2, 0.2), (x, yb - 0.2, zb - 0.4), 0.04, 0.04, "galv")
+    for sl in (-0.6, 0.6):
+        y, z = sl * math.cos(tilt), zc + sl * math.sin(tilt) - 0.08
+        mb.beam((-W / 2, y, z), (W / 2, y, z), 0.05, 0.06, "galv")
+    mb.box(T_((W / 2 - 0.3, yb - 0.2, 1.0)), (0.4, 0.15, 0.5), "pvc")
+    mb.build("SolarArray", c)
+
+
+@asset("wind_turbine", "Small wind turbine", "Energy & water", clear_grass=False)
+def a_wind_turbine(c):
+    mb = MB()
+    H = 12.0
+    mb.lathe(Matrix.Identity(4), [(0.6, -0.3), (0.6, 0.2), (0.0, 0.21)], 12, "concrete")
+    mb.lathe(Matrix.Identity(4), [(0.16, 0), (0.09, H)], 12, "galv")
+    mb.lathe(T_((0, -0.3, H + 0.15)) @ RX(-math.pi / 2), [(0.0, 0), (0.18, 0.15), (0.2, 0.8), (0.12, 1.3), (0.0, 1.4)], 12, "pvc")
+    mb.beam((0, 1.0, H + 0.2), (0, 2.2, H + 0.3), 0.04, 0.04, "galv")
+    mb.box(T_((0, 2.2, H + 0.3)), (0.02, 0.8, 0.9), "pvc")
+    mb.build("WindTurbine", c)
+    rotor = empty("Turbine_Rotor", c, (0, -0.4, H + 0.15))
+    rotor.rotation_euler = (math.pi / 2, 0, 0)
+    rb = MB()
+    rb.lathe(Matrix.Identity(4), [(0.0, -0.05), (0.2, 0.0), (0.18, 0.15), (0.0, 0.45)], 12, "pvc")
+    for k in range(3):
+        a = k * 2 * math.pi / 3
+        d = Vector((math.cos(a), math.sin(a), 0))
+        tg = Vector((-d.y, d.x, 0))
+        twist = tg * math.cos(0.25) + Vector((0, 0, math.sin(0.25)))
+        Rm = Matrix((d, twist, d.cross(twist))).transposed().to_4x4()
+        rb.box(T_(d * 1.6) @ Rm, (2.9, 0.22, 0.04), "pvc")
+    rb.build("Turbine_RotorMesh", c, parent=rotor)
+
+
+# -- crops & growing -------------------------------------------------------------
+
+def raised_bed(c, name, plant, spacing=0.3, rows=(-0.3, 0.3)):
+    mb = MB()
+    W, L, H = 1.2, 6.0, 0.3
+    for s in (-1, 1):
+        mb.box(T_((s * (W / 2 - 0.025), 0, H / 2)), (0.05, L, H), "old_wood", grain=True)
+        mb.box(T_((0, s * (L / 2 - 0.025), H / 2)), (W - 0.1, 0.05, H), "old_wood", grain=True)
+    for x in (-W / 2, W / 2):
+        for y in (-L / 2, 0, L / 2):
+            mb.box(T_((x * 0.96, y * 0.99, H / 2 + 0.03)), (0.08, 0.08, H + 0.06), "old_wood", grain=True)
+    mb.box(T_((0, 0, H / 2 - 0.02)), (W - 0.1, L - 0.1, H - 0.04), "soil", faces="Z")
+    rng = random.Random(sum(map(ord, name)))
+    for x in rows:
+        mb.tube([Vector((x + 0.08, -L / 2 + 0.1, H)), Vector((x + 0.08, L / 2 - 0.1, H))], [0.008, 0.008], 4, "poly_black")
+        for y in np.arange(-L / 2 + spacing, L / 2 - spacing / 2, spacing):
+            plant(mb, T_((x + rng.gauss(0, 0.02), y + rng.gauss(0, 0.02), H - 0.04)) @ RZ(rng.uniform(0, 6.28)), rng)
+    mb.build(name, c)
+
+
+@asset("bed_lettuce", "Raised bed: lettuce", "Crops")
+def a_bed_lettuce(c):
+    raised_bed(c, "BedLettuce", lambda mb, M, rng: lettuce(mb, M, "lettuce" if rng.random() < 0.7 else "lettuce_red", 1.1, rng), 0.3,
+               (-0.35, 0.0, 0.35))
+
+
+@asset("bed_cabbage", "Raised bed: cabbage", "Crops")
+def a_bed_cabbage(c):
+    raised_bed(c, "BedCabbage", lambda mb, M, rng: cabbage(mb, M, rng), 0.45)
+
+
+@asset("bed_tomato", "Raised bed: tomatoes", "Crops")
+def a_bed_tomato(c):
+    raised_bed(c, "BedTomato", lambda mb, M, rng: tomato_plant(mb, M, rng), 0.5)
+
+
+@asset("bed_greens", "Raised bed: onions & herbs", "Crops")
+def a_bed_greens(c):
+    raised_bed(c, "BedGreens", lambda mb, M, rng: onion_greens(mb, M, rng), 0.2, (-0.4, -0.13, 0.13, 0.4))
+
+
+@asset("bed_flowers", "Raised bed: flowers (pollinators)", "Crops")
+def a_bed_flowers(c):
+    raised_bed(c, "BedFlowers", lambda mb, M, rng: flower_clump(mb, M, "flower_yellow" if rng.random() < 0.6 else "flower_purple", rng),
+               0.35)
+
+
+@asset("corn_plot", "Corn plot (6 x 6 m)", "Crops")
+def a_corn_plot(c):
+    protos = [proto_corn(c, 400 + i) for i in range(4)]
+    rng = random.Random(51)
+    parts = []
+    for x in np.arange(-2.6, 2.7, 0.75):
+        for y in np.arange(-2.8, 2.9, 0.4):
+            if rng.random() < 0.04:
+                continue
+            p = rng.choice(protos)
+            s = rng.uniform(0.85, 1.1)
+            M = T_((x + rng.gauss(0, 0.04), y + rng.gauss(0, 0.06), 0)) @ RZ(rng.uniform(0, 6.28)) @ Matrix.Diagonal((s, s, s, 1))
+            parts.append((p.data, M))
+    join_parts("CornPlot", c, parts)
+    for p in protos:
+        bpy.data.objects.remove(p, do_unlink=True)
+
+
+@asset("herb_spiral", "Herb spiral (permaculture)", "Crops")
+def a_herb_spiral(c):
+    mb = MB()
+    rng = random.Random(61)
+    turns = 2.2
+    steps = 70
+    for i in range(steps):
+        t = i / steps
+        a = t * turns * 2 * math.pi
+        r = 0.35 + 1.55 * t
+        h = 1.05 - 0.85 * t
+        p = Vector((r * math.cos(a), r * math.sin(a), 0))
+        tang = Vector((-math.sin(a), math.cos(a), 0))
+        for z in np.arange(0.0, h, 0.16):
+            M = T_(p + Vector((0, 0, z + 0.08))) @ frame(tang).to_4x4() @ RZ(rng.uniform(-0.2, 0.2))
+            mb.box(M, (0.24 + rng.uniform(-0.04, 0.04), 0.16, 0.15), "stone")
+    mb.lathe(Matrix.Identity(4), [(1.85, 0.12), (1.2, 0.45), (0.6, 0.8), (0.0, 1.0)], 24, "soil")
+    for k in range(34):
+        t = rng.random()
+        a = rng.uniform(0, 6.28)
+        r = 0.3 + 1.5 * t
+        z = 1.0 - 0.85 * t
+        flower_clump(mb, T_((r * math.cos(a), r * math.sin(a), z)), "flower_purple" if rng.random() < 0.4 else "flower_yellow", rng)
+    mb.build("HerbSpiral", c)
+
+
+@asset("compost", "Compost bays", "Crops")
+def a_compost(c):
+    mb = MB()
+    bays, bw, d, h = 3, 1.6, 1.6, 1.1
+    W = bays * bw
+    for x in np.linspace(-W / 2, W / 2, bays + 1):
+        mb.box(T_((x, 0, h / 2)), (0.1, d, h), "old_wood", grain=True)
+    for z in np.arange(0.1, h, 0.2):
+        mb.box(T_((0, d / 2, z + 0.06)), (W, 0.04, 0.14), "old_wood", grain=True)
+        if z < 0.4:
+            mb.box(T_((0, -d / 2, z + 0.06)), (W, 0.04, 0.14), "old_wood", grain=True)
+    rng = random.Random(71)
+    for i, (hh, key) in enumerate(((0.9, "soil"), (0.7, "dirt"), (0.5, "straw"))):
+        x = -W / 2 + bw * (i + 0.5)
+        ellipsoid(mb, T_((x, 0.05, 0.0)), bw * 0.42, d * 0.42, hh, key, 12, 6)
+    mb.build("Compost", c)
+
+
+@asset("beehive", "Beehives", "Crops", clear_grass=False)
+def a_beehive(c):
+    mb = MB()
+    for i, x in enumerate((-0.7, 0.7)):
+        mb.box(T_((x, 0, 0.2)), (0.6, 0.55, 0.06), "old_wood", grain=True)
+        for sx in (-0.25, 0.25):
+            for sy in (-0.2, 0.2):
+                mb.box(T_((x + sx, sy, 0.09)), (0.05, 0.05, 0.18), "old_wood", grain=True)
+        z = 0.23
+        for k, key in enumerate(("trim", "hive_yellow", "trim")):
+            hh = 0.25 if k < 2 else 0.16
+            mb.box(T_((x, 0, z + hh / 2)), (0.5, 0.42, hh), key if i == 0 else ("hive_yellow" if key == "trim" else "trim"))
+            z += hh
+        mb.box(T_((x, 0, z + 0.03)), (0.56, 0.48, 0.06), "galv")
+        mb.box(T_((x, -0.215, 0.255)), (0.3, 0.02, 0.02), "hoof")
+    mb.build("Beehives", c)
+
+
+# -- trees (agroforestry) -----------------------------------------------------------
+
+@asset("tree_oak", "Shade tree", "Trees", clear_grass=False)
+def a_tree_oak(c):
+    proto_tree(c, 101, height=11, name="ShadeTree")
+
+
+@asset("tree_broadleaf", "Broadleaf tree (small)", "Trees", clear_grass=False)
+def a_tree_small(c):
+    proto_tree(c, 103, height=7.5, name="SmallTree")
+
+
+@asset("tree_olive", "Olive tree", "Trees", clear_grass=False)
+def a_tree_olive(c):
+    proto_tree(c, 111, height=5.5, crown=1.15, name="OliveTree", leaf_key="olive_leaves", card=(0.7, 1.05), spread=0.5,
+               thick=0.05, trunk=0.3, per_tip=(4, 6), twist=1.6, fruit=("hoof", 0.25))
+
+
+@asset("tree_citrus", "Orange tree", "Trees", clear_grass=False)
+def a_tree_citrus(c):
+    proto_tree(c, 121, height=4.2, crown=1.0, name="OrangeTree", leaf_key="citrus_leaves", card=(0.6, 0.9), spread=0.45,
+               thick=0.035, trunk=0.3, per_tip=(8, 11), fruit=("orange_fruit", 0.5))
+
+
+@asset("tree_lemon", "Lemon tree", "Trees", clear_grass=False)
+def a_tree_lemon(c):
+    proto_tree(c, 125, height=3.8, crown=1.0, name="LemonTree", leaf_key="citrus_leaves", card=(0.55, 0.85), spread=0.45,
+               thick=0.035, trunk=0.28, per_tip=(8, 11), fruit=("lemon", 0.45))
+
+
+@asset("banana", "Banana plant", "Trees", clear_grass=False)
+def a_banana(c):
+    mb = MB()
+    rng = random.Random(131)
+    for st, (ox, oy, hh) in enumerate(((0, 0, 3.0), (0.45, 0.25, 1.8), (-0.35, 0.3, 1.2))):
+        base = Vector((ox, oy, 0))
+        top = base + Vector((rng.gauss(0, 0.05), rng.gauss(0, 0.05), hh))
+        mb.tube([base, (base + top) / 2, top], [0.14 * hh / 3 + 0.04, 0.11 * hh / 3 + 0.03, 0.08 * hh / 3 + 0.03], 8, "banana_stem")
+        nl = 8 if st == 0 else 5
+        for k in range(nl):
+            a = k * 2.4 + rng.uniform(0, 0.5)
+            d = Vector((math.cos(a), math.sin(a), 0))
+            side = Vector((-d.y, d.x, 0))
+            Lf = rng.uniform(2.1, 2.7) * (hh / 3) ** 0.5
+            wf = 0.4 * (hh / 3) ** 0.5
+            segs = 6
+            pts = []
+            for i in range(segs + 1):
+                s = i / segs
+                p = top + d * (Lf * s * 0.9) + Vector((0, 0, Lf * (0.55 * s - 0.75 * s * s) + 0.1))
+                pts.append(p)
+            for i in range(segs):
+                s0, s1 = i / segs, (i + 1) / segs
+                droop0 = Vector((0, 0, -0.08 * math.sin(math.pi * s0)))
+                droop1 = Vector((0, 0, -0.08 * math.sin(math.pi * s1)))
+                q = [pts[i] - side * wf + droop0, pts[i] + side * wf + droop0, pts[i + 1] + side * wf + droop1, pts[i + 1] - side * wf + droop1]
+                mb.face(q, "banana_leaf", [(0, s0), (1, s0), (1, s1), (0, s1)])
+    # fruit bunch
+    t = Vector((0, 0, 3.0))
+    stalk = [t, t + Vector((0.35, -0.1, -0.2)), t + Vector((0.5, -0.15, -0.7))]
+    mb.tube(stalk, [0.03, 0.03, 0.025], 5, "banana_stem")
+    for k in range(18):
+        z = -0.3 - 0.4 * (k / 18)
+        a = k * 1.3
+        p = t + Vector((0.47 + 0.12 * math.cos(a), -0.15 + 0.12 * math.sin(a), z))
+        mb.lathe(T_(p) @ RY(0.4 * math.cos(a)) @ RX(0.4 * math.sin(a)), [(0.0, 0.0), (0.025, 0.04), (0.022, 0.16), (0.0, 0.2)], 5,
+                 "banana_fruit")
+    mb.build("Banana", c, merge=False)
+
+
+@asset("date_palm", "Date palm", "Trees", clear_grass=False)
+def a_date_palm(c):
+    mb = MB()
+    rng = random.Random(141)
+    H = 7.5
+    pts = [Vector((0.12 * math.sin(z * 0.4), 0.08 * math.sin(z * 0.3 + 1), z)) for z in np.linspace(-0.2, H, 8)]
+    mb.tube(pts, [0.32, 0.27, 0.25, 0.24, 0.23, 0.23, 0.24, 0.26], 10, "palm_trunk")
+    top = pts[-1]
+    for k in range(34):
+        a = k * 2.399
+        tier = k / 34
+        el = 0.9 - tier * 1.5  # upper fronds point up, lower ones droop
+        d = Vector((math.cos(a), math.sin(a), 0))
+        side = Vector((-d.y, d.x, 0))
+        Lf = rng.uniform(3.2, 4.0)
+        wf = 0.85
+        segs = 6
+        pp = []
+        for i in range(segs + 1):
+            s = i / segs
+            pp.append(top + d * (Lf * s * math.cos(max(el, -0.3) * 0.6)) + Vector((0, 0, Lf * (math.sin(el) * s * 0.7 - 0.35 * s * s))))
+        for i in range(segs):
+            s0, s1 = i / segs, (i + 1) / segs
+            tw = 0.25
+            sd0 = side * wf + Vector((0, 0, tw * wf))
+            sd1 = side * wf + Vector((0, 0, tw * wf))
+            mb.face([pp[i] - sd0, pp[i] + sd0, pp[i + 1] + sd1, pp[i + 1] - sd1], "palm_frond", [(0, s0), (1, s0), (1, s1), (0, s1)])
+    for k in range(5):  # date clusters
+        a = k * 1.26 + 0.3
+        p = top + Vector((0.42 * math.cos(a), 0.42 * math.sin(a), -0.5))
+        ellipsoid(mb, T_(p), 0.12, 0.12, 0.26, "dates", 8, 5)
+    mb.build("DatePalm", c, merge=False)
+
+
+@asset("bush", "Shrub", "Trees", clear_grass=False)
+def a_bush(c):
+    proto_bush(c, 300, size=1.2)
+
+
+@asset("hedge_bush", "Flowering shrub", "Trees", clear_grass=False)
+def a_bush2(c):
+    proto_bush(c, 302, size=0.9)
+    rng = random.Random(7)
+    mb = MB()
+    for k in range(25):
+        p = Vector((rng.gauss(0, 0.45), rng.gauss(0, 0.45), abs(rng.gauss(0.6, 0.25))))
+        ellipsoid(mb, T_(p), 0.04, 0.04, 0.03, "flower_purple" if k % 2 else "flower_yellow", 6, 3)
+    mb.build("ShrubFlowers", c)
+
+
+# -- animals --------------------------------------------------------------------------
+
+@asset("chickens", "Chickens (group)", "Livestock", clear_grass=False)
+def a_chickens(c):
+    mb = MB()
+    rng = random.Random(81)
+    for k in range(7):
+        chicken(mb, T_((rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5), 0)) @ RZ(rng.uniform(0, 6.28)),
+                "feather_brown" if rng.random() < 0.5 else "feather_white", rng)
+    mb.build("Chickens", c)
+
+
+@asset("goat", "Goat", "Livestock", clear_grass=False)
+def a_goat(c):
+    mb = MB()
+    goat(mb, Matrix.Identity(4), "goat_white", rng=random.Random(1))
+    mb.build("Goat", c)
+
+
+@asset("goat_brown", "Goat (brown)", "Livestock", clear_grass=False)
+def a_goat_b(c):
+    mb = MB()
+    goat(mb, Matrix.Identity(4), "goat_brown", rng=random.Random(2))
+    mb.build("GoatBrown", c)
+
+
+@asset("sheep", "Sheep", "Livestock", clear_grass=False)
+def a_sheep(c):
+    mb = MB()
+    goat(mb, Matrix.Identity(4), "goat_white", wool=True, rng=random.Random(3))
+    mb.build("Sheep", c)
+
+
+# -- walls, fences, gates -----------------------------------------------------------------
+
+@asset("wall", "Perimeter wall (10 m)", "Walls & fences")
+def a_wall(c):
+    mb = MB()
+    L = 10.0
+    mb.box(T_((0, 0, -0.1)), (L, 0.35, 0.3), "concrete")
+    mb.box(T_((0, 0, 1.0)), (L - 0.4, 0.2, 2.0), "stucco")
+    mb.box(T_((0, 0, 2.03)), (L - 0.4, 0.26, 0.06), "concrete")
+    for x in (-L / 2, L / 2):
+        mb.box(T_((x, 0, 1.12)), (0.42, 0.42, 2.25), "stucco")
+        mb.box(T_((x, 0, 2.29)), (0.5, 0.5, 0.08), "concrete")
+    mb.build("Wall", c)
+
+
+@asset("gate", "Entrance gate (6 m)", "Walls & fences")
+def a_gate(c):
+    mb = MB()
+    for x in (-3.4, 3.4):
+        mb.box(T_((x, 0, 1.3)), (0.6, 0.6, 2.6), "stucco")
+        mb.box(T_((x, 0, 2.65)), (0.7, 0.7, 0.1), "concrete")
+    for s in (-1, 1):
+        x0 = s * 0.03
+        x1 = s * 3.05
+        for z in (0.15, 1.9):
+            mb.beam((x0, 0, z), (x1, 0, z), 0.06, 0.06, "dark_metal")
+        for x in np.linspace(x0, x1, 18):
+            mb.beam((x, 0, 0.12), (x, 0, 1.95), 0.03, 0.03, "dark_metal")
+    mb.build("Gate", c)
+
+
+@asset("fence_wood", "Wooden fence (5 m)", "Walls & fences", clear_grass=False)
+def a_fence_wood(c):
+    random.seed(17)
+    build_fence(c, [(-2.5, 0.0), (2.5, 0.0)], "WoodFence", spacing=2.5)
+
+
+@asset("fence_mesh", "Mesh fence (5 m)", "Walls & fences", clear_grass=False)
+def a_fence_mesh(c):
+    mb = MB()
+    for x in (-2.5, 0.0, 2.5):
+        mb.lathe(T_((x, 0, -0.2)), [(0.03, 0), (0.03, 2.0)], 8, "galv", cap1=True)
+    mb.beam((-2.5, 0, 1.75), (2.5, 0, 1.75), 0.035, 0.035, "galv")
+    pts = [Vector((-2.5, 0, 0.02)), Vector((2.5, 0, 0.02)), Vector((2.5, 0, 1.75)), Vector((-2.5, 0, 1.75))]
+    mb.face(pts, "mesh_fence")
+    mb.build("MeshFence", c, merge=False)
+
+
+@asset("pergola", "Vine pergola", "Crops", clear_grass=False)
+def a_pergola(c):
+    mb = MB()
+    W, L, H = 3.0, 6.0, 2.4
+    for x in (-W / 2, W / 2):
+        for y in np.linspace(-L / 2, L / 2, 3):
+            mb.box(T_((x, y, H / 2)), (0.12, 0.12, H), "old_wood", grain=True)
+        mb.box(T_((x, 0, H + 0.05)), (0.08, L + 0.4, 0.18), "old_wood", grain=True)
+    for y in np.arange(-L / 2, L / 2 + 0.1, 0.5):
+        mb.box(T_((0, y, H + 0.18)), (W + 0.5, 0.06, 0.1), "old_wood", grain=True)
+    rng = random.Random(91)
+    for k in range(70):
+        p = Vector((rng.uniform(-W / 2, W / 2), rng.uniform(-L / 2, L / 2), H + 0.25 + rng.uniform(-0.05, 0.15)))
+        mb.card(p, Vector((rng.gauss(0, 0.3), rng.gauss(0, 0.3), 1)).normalized(), rng.uniform(0.6, 0.9), "leaves", rot=rng.uniform(0, 6.28))
+    for x in (-W / 2, W / 2):
+        for y in np.linspace(-L / 2, L / 2, 3):
+            for k in range(4):
+                p = Vector((x + rng.gauss(0, 0.08), y + rng.gauss(0, 0.08), rng.uniform(0.3, H)))
+                mb.card(p, Vector((rng.gauss(0, 1), rng.gauss(0, 1), 0.5)).normalized(), 0.4, "leaves", rot=rng.uniform(0, 6.28))
+    mb.build("Pergola", c, merge=False)
+
+
+# -- props -------------------------------------------------------------------------------------
+
+@asset("round_bale", "Round hay bale", "Props", clear_grass=False)
+def a_round_bale(c):
+    proto_round_bale(c)
+
+
+@asset("bale_stack", "Square bale stack", "Props")
+def a_bale_stack(c):
+    src = proto_square_bale(c)
+    parts = []
+    for layer in range(3):
+        for row in range(2):
+            for col in range(3 - layer):
+                M = T_((col * 0.97 + layer * 0.48 - 0.97, row * 0.48 - 0.24, layer * 0.38)) @ RZ(random.uniform(-0.05, 0.05))
+                parts.append((src.data, M))
+    join_parts("BaleStack", c, parts)
+    bpy.data.objects.remove(src, do_unlink=True)
+
+
+@asset("barrels", "Barrels", "Props", clear_grass=False)
+def a_barrels(c):
+    src = proto_barrel(c)
+    join_parts("Barrels", c, [(src.data, T_((x, y, 0)) @ RZ(r)) for x, y, r in ((0, 0, 0), (0.7, 0.2, 1), (0.3, 0.65, 2))])
+    bpy.data.objects.remove(src, do_unlink=True)
+
+
+@asset("crates", "Crates", "Props", clear_grass=False)
+def a_crates(c):
+    src = proto_crate(c)
+    join_parts("Crates", c, [(src.data, T_((x, y, z)) @ RZ(r)) for x, y, z, r in ((0, 0, 0, 0), (0.65, 0.05, 0, 0.1), (0.3, 0.0, 0.6, -0.15))])
+    bpy.data.objects.remove(src, do_unlink=True)
+
+
+@asset("trough", "Water trough", "Livestock")
+def a_trough(c):
+    build_trough(c, 0.0, 0.0, 0.0)
+
+
+@asset("cart", "Hay cart", "Props")
+def a_cart(c):
+    build_cart(c, 0.0, 0.0, 0.0)
+
+
+@asset("rock", "Rock", "Props", clear_grass=False)
+def a_rock(c):
+    proto_rock(c, 600, size=1.0)
+
+
+@asset("rock_small", "Small rocks", "Props", clear_grass=False)
+def a_rocks(c):
+    srcs = [proto_rock(c, 601 + i, size=0.45) for i in range(3)]
+    join_parts("SmallRocks", c, [(s.data, T_((i * 0.8 - 0.8, (i % 2) * 0.5, 0))) for i, s in enumerate(srcs)])
+    for s in srcs:
+        bpy.data.objects.remove(s, do_unlink=True)
+
+
+@asset("car", "Car", "Props")
+def a_car(c):
+    mb = MB()
+    L, W = 4.4, 1.8
+    body = [(-L / 2, 0.35), (L / 2, 0.35), (L / 2, 0.85), (L / 2 - 0.9, 0.95), (0.9, 1.0), (0.5, 1.45), (-1.2, 1.45),
+            (-1.75, 1.0), (-L / 2, 0.95)]
+    mb.prism(RZ(math.pi / 2) @ T_((0, -W / 2, 0)) @ Matrix.Identity(4), body, 0, W, "car_red")
+    win = [(0.88, 1.02), (0.5, 1.4), (-1.15, 1.4), (-1.7, 1.02)]
+    for s in (-1, 1):
+        pts = [Vector((s * (W / 2 + 0.005), x, z)) for x, z in win]
+        mb.face(pts if s > 0 else list(reversed(pts)), "glass")
+    mb.face([Vector((-W / 2 + 0.1, 0.52, 1.42)), Vector((W / 2 - 0.1, 0.52, 1.42)), Vector((W / 2 - 0.1, 0.9, 1.0)), Vector((-W / 2 + 0.1, 0.9, 1.0))], "glass")
+    for x in (-1.35, 1.35):
+        for s in (-1, 1):
+            mb.lathe(T_((s * (W / 2 - 0.12), x, 0.33)) @ RY(math.pi / 2), [(0.0, -0.11), (0.33, -0.11), (0.33, 0.11), (0.0, 0.11)], 14, "poly_black")
+    mb.build("Car", c)
+
+
+# ---------------------------------------------------------------------------
+# Scene assembly (the library, laid out on a grid for browsing in Blender)
 # ---------------------------------------------------------------------------
 
 def clear_scene():
@@ -1851,160 +2847,35 @@ def clear_scene():
             block.remove(item)
 
 
-def scatter_ok(x, y, keep_out):
-    if any(math.hypot(x - kx, y - ky) < kr for kx, ky, kr in keep_out):
-        return False
-    d, s, g = masks(x, y)
-    return d < 0.05 and s < 0.05 and g < 0.5
-
-
-def build_world_objects():
-    root = collection("Farm")
-    c_terrain = collection("Terrain", root)
-    c_build = collection("Buildings", root)
-    c_props = collection("Props", root)
-    c_nature = collection("Nature", root)
-    c_crops = collection("Crops", root)
-    c_proto = collection("Prototypes", root)
-    c_help = collection("WebHelpers", root)
-
-    build_terrain(c_terrain)
-    log("terrain")
-    build_pond(c_terrain)
-    build_barn(c_build)
-    log("barn")
-    build_silo(c_build)
-    build_house(c_build)
-    log("house")
-    build_windmill(c_build)
-    log("windmill")
-
-    # paddock fence with a gate on the east side
-    x0, x1, y0, y1 = PADDOCK
-    build_fence(c_props, [(x1, 3.0), (x1, y1), (x0, y1), (x0, y0), (x1, y0), (x1, 0.0)], "Paddock_Fence")
-    build_gate(c_props, (x1, 0.0), (x1, 3.0))
-    # garden fence in front of the house
-    hx, hy = HOUSE
-    build_fence(c_props, [(hx - 6.5, hy - 7.2), (hx - 1.6, hy - 7.2)], "Garden_Fence_W", spacing=2.2)
-    build_fence(c_props, [(hx + 1.6, hy - 7.2), (hx + 6.5, hy - 7.2), (hx + 6.5, hy - 3.0)], "Garden_Fence_E", spacing=2.2)
-    build_trough(c_props, -20.0, 9.0, 0.3)
-    build_cart(c_props, 8.5, 0.5, 2.6)
-    log("fences & props")
-
-    # prototypes (hidden far below; instances reference their meshes)
-    protos = {}
-    protos["round_bale"] = proto_round_bale(c_proto)
-    protos["square_bale"] = proto_square_bale(c_proto)
-    protos["barrel"] = proto_barrel(c_proto)
-    protos["crate"] = proto_crate(c_proto)
-    trees = [proto_tree(c_proto, 100 + i, height=random.uniform(9, 13), name=f"Proto_Tree{i}") for i in range(4)]
-    bushes = [proto_bush(c_proto, 300 + i, size=random.uniform(0.9, 1.4)) for i in range(3)]
-    corns = [proto_corn(c_proto, 400 + i) for i in range(4)]
-    reeds = [proto_reeds(c_proto, 500 + i) for i in range(2)]
-    rocks = [proto_rock(c_proto, 600 + i, size=random.uniform(0.5, 1.1)) for i in range(4)]
-    for ob in c_proto.objects:
-        ob.location.z -= 500.0
-    log("prototypes")
-
-    def put(src, name, coll, x, y, rot=None, scale=1.0, dz=0.0):
-        rot = random.uniform(0, 2 * math.pi) if rot is None else rot
-        return instance(src, name, coll, (x, y, ground(x, y) + dz), rot, scale)
-
-    # hay: round bales in the meadow, a stack of square bales by the barn
-    k = 0
-    for i in range(14):
-        x, y = random.uniform(-80, -46), random.uniform(0, 40)
-        put(protos["round_bale"], f"RoundBale{k}", c_props, x, y, scale=random.uniform(0.95, 1.05), dz=-0.04)
-        k += 1
-    for x, y, r in ((-12.5, 6.5, 0.2), (-13.6, 8.6, 1.4), (25, 8, 0.6)):
-        put(protos["round_bale"], f"RoundBale{k}", c_props, x, y, rot=r, dz=-0.04)
-        k += 1
-    bx, by = -9.4, 3.2
-    k = 0
-    for layer in range(3):
-        for row in range(2):
-            for col in range(3 - layer):
-                x = bx + col * 0.97 + layer * 0.48 + random.uniform(-0.03, 0.03)
-                y = by + row * 0.48 + random.uniform(-0.03, 0.03)
-                instance(protos["square_bale"], f"SquareBale{k}", c_props, (x, y, ground(bx, by) + layer * 0.38 - 0.01),
-                         random.uniform(-0.06, 0.06))
-                k += 1
-    for i, (x, y) in enumerate(((2.6, 4.0), (3.3, 4.3), (2.9, 3.4), (8.6, 17.0))):
-        put(protos["barrel"], f"Barrel{i}", c_props, x, y)
-    for i, (x, y, z) in enumerate(((1.6, 3.6, 0), (1.5, 2.95, 0), (1.55, 3.3, 0.6), (17.2, -8.2, 0), (16.9, -8.8, 0))):
-        instance(protos["crate"], f"Crate{i}", c_props, (x, y, ground(x, y) + z), random.uniform(-0.3, 0.3))
-
-    # corn field: rows along Y, 0.8 m apart
-    cx0, cx1, cy0, cy1 = CORN
-    k = 0
-    xs = np.arange(cx0 + 0.6, cx1 - 0.4, 0.8)
-    for x in xs:
-        for y in np.arange(cy0 + 0.5, cy1 - 0.3, 0.42):
-            if random.random() < 0.04:
-                continue
-            xx, yy = x + random.gauss(0, 0.05), y + random.gauss(0, 0.08)
-            put(random.choice(corns), f"Corn{k}", c_crops, xx, yy, scale=random.uniform(0.85, 1.1))
-            k += 1
-    log(f"corn plants: {k}")
-
-    # trees
-    keep = [(BARN[0], BARN[1], 13), (HOUSE[0], HOUSE[1] - 1, 9), (SILO[0], SILO[1], 4.5), (WINDMILL[0], WINDMILL[1], 4),
-            (POND[0], POND[1], POND[2] + 2), (40, -40, 16), (24, -24, 9)]  # last two: keep the default view clear
-    spots = [(31, -9), (32, 5), (11, -17), (-17, 31), (-6, 34), (7, 35), (-24, 36), (36, -40), (24, -45)]
-    for x in np.arange(-70, 75, 8.0):  # wind-break row behind the farm
-        spots.append((x + random.uniform(-2, 2), 58 + random.uniform(-3, 3)))
-    for x, y in (((-6, -60), (-2, -80), (24, -75), (25, -100), (5, -120), (28, -130), (-4, -100))):
-        spots.append((x, y))
-    for _ in range(60):  # scattered trees on the hills
-        a = random.uniform(0, 2 * math.pi)
-        r = random.uniform(80, 190)
-        spots.append((2 + r * math.cos(a), 2 + r * math.sin(a)))
-    k = 0
-    for x, y in spots:
-        if not scatter_ok(x, y, keep):
-            continue
-        w, l = random.choice(trees)
-        rot = random.uniform(0, 2 * math.pi)
-        s = random.uniform(0.8, 1.2)
-        put(w, f"Tree{k}_Wood", c_nature, x, y, rot, s)
-        put(l, f"Tree{k}_Leaves", c_nature, x, y, rot, s)
-        k += 1
-    log(f"trees: {k}")
-    k = 0
-    bush_spots = [(HOUSE[0] - 4 + i * 1.6, HOUSE[1] - 6.6) for i in range(6) if abs(i - 2.5) > 1] + \
-                 [(-14.8, y) for y in np.arange(6, 24, 4.5)] + [(x, -4.8) for x in np.arange(-36, -16, 5.5)] + \
-                 [(random.uniform(-90, 90), random.uniform(-90, 90)) for _ in range(60)]
-    for x, y in bush_spots:
-        if not (k < 6 or scatter_ok(x, y, keep)):
-            continue
-        w, l = random.choice(bushes)
-        rot = random.uniform(0, 6.28)
-        s = random.uniform(0.7, 1.2)
-        put(w, f"Bush{k}_Wood", c_nature, x, y, rot, s)
-        put(l, f"Bush{k}_Leaves", c_nature, x, y, rot, s)
-        k += 1
-    # reeds around the pond
-    px, py, pr = POND
-    for i in range(26):
-        a = random.uniform(0, 2 * math.pi)
-        r = pr + random.uniform(-1.0, 0.8)
-        put(random.choice(reeds), f"Reeds{i}", c_nature, px + r * math.cos(a), py + r * math.sin(a), scale=random.uniform(0.8, 1.2))
-    # rocks
-    for i in range(40):
-        x, y = random.uniform(-120, 120), random.uniform(-120, 120)
-        if i < 8:
-            a = random.uniform(0, 2 * math.pi)
-            x, y = px + (pr + 1.6) * math.cos(a), py + (pr + 1.6) * math.sin(a)
-        elif not scatter_ok(x, y, keep):
-            continue
-        put(random.choice(rocks), f"Rock{i}", c_nature, x, y, scale=random.uniform(0.6, 1.6), dz=-0.1)
-    log("vegetation")
-
-    # helper planes so the web viewer gets the terrain-layer textures
-    for i, key in enumerate(("grass", "dirt", "soil")):
+def build_assets():
+    root = collection("FarmAssets")
+    cats = {}
+    for aid, label, cat, clear_grass, fn in ASSETS:
+        coll = cats.get(cat) or collection(cat, root)
+        cats[cat] = coll
+        before = set(bpy.data.objects)
+        random.seed(sum(map(ord, aid)))
+        fn(coll)
+        new = [o for o in bpy.data.objects if o not in before]
+        holder = empty(f"asset:{aid}", coll)
+        holder["asset"] = aid
+        holder["label"] = label
+        holder["category"] = cat
+        holder["clearGrass"] = 1 if clear_grass else 0
+        for o in new:
+            if o.parent is None:
+                o.parent = holder
+        log(f"asset {aid}: {len(new)} objects")
+    # browse grid
+    holders = [o for o in bpy.data.objects if o.name.startswith("asset:")]
+    cols = 8
+    for i, h in enumerate(holders):
+        h.location = ((i % cols) * 30.0, -(i // cols) * 30.0, 0.0)
+    helpers = collection("WebHelpers", root)
+    for i, key in enumerate(("grass", "dirt", "soil", "paving", "gravel")):
         mb = MB()
         mb.face([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], key, [(0, 0), (1, 0), (1, 1), (0, 1)])
-        mb.build(f"TexLayer_{key}", c_help, loc=(i * 2, 0, -600))
+        mb.build(f"TexLayer_{key}", helpers, loc=(i * 2, 30, -5))
 
 
 # ---------------------------------------------------------------------------
@@ -2057,8 +2928,8 @@ def setup_lighting_and_camera():
     cam_data.clip_end = 2000
     cam = bpy.data.objects.new("Camera", cam_data)
     scene.collection.objects.link(cam)
-    cam.location = (46, -46, 17)
-    target = Vector((2, 8, 3))
+    cam.location = (105, 40, 75)  # looks over the asset grid
+    target = Vector((105, -60, 0))
     cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
     scene.camera = cam
     return sun, cam
@@ -2080,31 +2951,27 @@ def render_preview(path, samples):
         scene.view_settings.exposure = -0.4
     except TypeError:
         pass
-    # hide helper/prototype collections from the render
-    for name in ("Prototypes", "WebHelpers"):
-        COLL[name].hide_render = True
+    COLL["WebHelpers"].hide_render = True
     scene.render.filepath = path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     log(f"rendering preview ({samples} samples) -> {path}")
     bpy.ops.render.render(write_still=True)
-    for name in ("Prototypes", "WebHelpers"):
-        COLL[name].hide_render = False
+    COLL["WebHelpers"].hide_render = False
 
 
 def export_glb(out_dir):
-    raw = os.path.join(HERE, "out", "farm_raw.glb")
+    raw = os.path.join(HERE, "out", "assets_raw.glb")
     os.makedirs(os.path.dirname(raw), exist_ok=True)
-    proto = COLL["Prototypes"]
-    for ob in bpy.context.scene.objects:  # prototypes are only referenced through their instances
-        ob.select_set(ob.name not in proto.objects and ob.type in {"MESH", "EMPTY"})
+    for ob in bpy.context.scene.objects:
+        ob.select_set(ob.type in {"MESH", "EMPTY"})
     bpy.ops.export_scene.gltf(
         filepath=raw, export_format="GLB", use_selection=True, export_yup=True, export_apply=True,
         export_extras=True, export_cameras=False, export_lights=False, export_animations=False,
         export_image_format="WEBP", export_image_quality=88,
         export_vertex_color="ACTIVE", export_all_vertex_colors=False)
     log(f"exported {raw} ({os.path.getsize(raw) / 1e6:.1f} MB)")
-    # instancing + meshopt compression (needs Node.js and `npm install` in the repo)
-    final = os.path.join(out_dir, "farm.glb")
+    # meshopt compression (needs Node.js and `npm install` in the repo)
+    final = os.path.join(out_dir, "assets.glb")
     os.makedirs(out_dir, exist_ok=True)
     node = shutil.which("node")
     script = os.path.join(HERE, "optimize.mjs")
@@ -2120,7 +2987,7 @@ def main():
     clear_scene()
     T = make_textures()
     make_materials(T)
-    build_world_objects()
+    build_assets()
     setup_lighting_and_camera()
     if OPT["blend"]:
         os.makedirs(os.path.dirname(OPT["blend"]), exist_ok=True)

@@ -13,6 +13,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SEED_FILE = path.join(__dirname, 'data', 'seed.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const FARM_FILE = path.join(DATA_DIR, 'farm-layout.json');
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 const COOKIE = 'abcd_admin';
 
@@ -214,6 +215,13 @@ app.use((req, res, next) => {
 app.get('/api/content', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(publicContent());
+});
+
+// 3D farm layout (edited in /farm, saved by the admin). 204 = none saved, use the built-in default.
+app.get('/api/farm', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!fs.existsSync(FARM_FILE)) return res.status(204).end();
+  res.type('application/json').send(fs.readFileSync(FARM_FILE, 'utf8'));
 });
 
 app.get('/api/qr.svg', async (req, res) => {
@@ -426,6 +434,40 @@ admin.post('/reset', (req, res) => {
   Object.assign(db, { event: seed.event, features: seed.features, days: seed.days, partners: seed.partners });
   commit();
   res.json(publicContent());
+});
+
+// 3D farm layout
+function cleanFarmLayout(b) {
+  if (!b || !Array.isArray(b.objects) || b.objects.length > 20000) return null;
+  const num = (v, min, max, def = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+  };
+  const objects = b.objects
+    .filter((o) => o && typeof o.asset === 'string' && /^[a-z0-9_]{1,64}$/.test(o.asset))
+    .map((o) => ({
+      asset: o.asset,
+      x: num(o.x, -1000, 1000), z: num(o.z, -1000, 1000), ry: num(o.ry, -720, 720),
+      sx: num(o.sx, 0.05, 50, 1), sy: num(o.sy, 0.05, 50, 1), sz: num(o.sz, 0.05, 50, 1)
+    }));
+  let ground = null;
+  if (b.ground && typeof b.ground === 'object' && typeof b.ground.data === 'string' && b.ground.data.length < 8_000_000 &&
+      /^[A-Za-z0-9+/=]*$/.test(b.ground.data)) {
+    ground = { size: num(b.ground.size, 16, 2048, 512), extent: num(b.ground.extent, 10, 2000, 140), data: b.ground.data };
+  }
+  return { version: 1, savedAt: new Date().toISOString(), objects, ground };
+}
+admin.put('/farm', (req, res) => {
+  const layout = cleanFarmLayout(req.body);
+  if (!layout) return res.status(400).json({ error: 'Invalid farm layout' });
+  const tmp = `${FARM_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(layout));
+  fs.renameSync(tmp, FARM_FILE);
+  res.json({ ok: true, savedAt: layout.savedAt, objects: layout.objects.length });
+});
+admin.delete('/farm', (req, res) => {
+  if (fs.existsSync(FARM_FILE)) fs.unlinkSync(FARM_FILE);
+  res.json({ ok: true });
 });
 
 app.use('/api/admin', admin);

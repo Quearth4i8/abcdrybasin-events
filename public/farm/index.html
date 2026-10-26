@@ -4,32 +4,91 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>3D Farm · ABCDryBASIN</title>
-  <meta name="description" content="Interactive 3D farm scene.">
+  <meta name="description" content="Interactive 3D model of an integrated, climate-smart farm.">
   <meta name="theme-color" content="#0b2a52">
   <link rel="icon" href="/assets/abcdrybasin.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    :root { --ink: #10202e; --panel: rgba(255, 255, 255, 0.82); --accent: #0b2a52; }
+    :root { --ink: #10202e; --panel: rgba(255, 255, 255, 0.86); --accent: #0b2a52; --hl: #ffc23d; --line: rgba(16, 32, 46, 0.12); }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #b9c9d8; font-family: Poppins, system-ui, sans-serif; color: var(--ink); }
     canvas { display: block; touch-action: none; }
+    button { font: inherit; }
+    .glass { background: var(--panel); backdrop-filter: blur(8px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); border-radius: 12px; }
     .ui { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-          padding: 10px 14px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(8px);
-          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); font-size: 13px; max-width: calc(100vw - 32px); }
+          padding: 10px 14px; font-size: 13px; max-width: calc(100vw - 32px); }
     .ui label { display: flex; gap: 8px; align-items: center; }
     .ui input[type=range] { width: 140px; accent-color: var(--accent); }
-    .ui button { font: inherit; border: 0; border-radius: 8px; padding: 6px 10px; background: var(--accent); color: #fff; cursor: pointer; }
+    .btn { border: 0; border-radius: 8px; padding: 6px 12px; background: var(--accent); color: #fff; cursor: pointer; }
+    .btn.alt { background: #fff; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .ui .hint { opacity: 0.7; }
-    .back { position: fixed; left: 16px; top: 16px; padding: 8px 12px; border-radius: 10px; background: var(--panel);
-            color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 500; backdrop-filter: blur(8px); }
-    #loader { position: fixed; inset: 0; display: grid; place-items: center; background: #c6d4e0; transition: opacity 0.6s; z-index: 5; }
+    .back { position: fixed; left: 16px; top: 16px; padding: 8px 12px; color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 500; }
+    #loader { position: fixed; inset: 0; display: grid; place-items: center; background: #c6d4e0; transition: opacity 0.6s; z-index: 50; }
     #loader.done { opacity: 0; pointer-events: none; }
     #loader .box { width: min(320px, 80vw); text-align: center; font-size: 14px; }
     #loader .bar { height: 6px; margin-top: 12px; border-radius: 3px; background: rgba(11, 42, 82, 0.15); overflow: hidden; }
     #loader .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
-    @media (max-width: 600px) { .ui .hint { display: none; } }
+
+    /* ---------- editor ---------- */
+    .editor-toolbar, .editor-panel, .editor-status { display: none; }
+    body.editing .editor-toolbar { display: flex; }
+    body.editing .editor-panel { display: block; }
+    body.editing .back { display: none; }
+    body.editing .ui .hint { display: none; }
+    .editor-toolbar { position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; width: fit-content; gap: 10px; padding: 6px; z-index: 10;
+                      background: var(--panel); backdrop-filter: blur(8px); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+                      flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); font-size: 13px; }
+    .editor-toolbar .group { display: flex; gap: 4px; align-items: center; padding-right: 10px; border-right: 1px solid var(--line); }
+    .editor-toolbar .group:last-of-type { border-right: 0; padding-right: 0; }
+    .tb { border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); white-space: nowrap; }
+    .tb:hover { background: rgba(11, 42, 82, 0.08); }
+    .tb.on { background: var(--accent); color: #fff; }
+    .tb:disabled { opacity: 0.35; cursor: default; }
+    .tb.primary { background: var(--accent); color: #fff; }
+    .tb.primary.pending::after { content: ' •'; color: var(--hl); }
+    .tb-check { display: flex; gap: 4px; align-items: center; padding: 0 6px; cursor: pointer; }
+    .tb-menu { position: relative; }
+    .tb-menu summary { list-style: none; }
+    .tb-menu summary::-webkit-details-marker { display: none; }
+    .tb-menu .menu { position: absolute; right: 0; top: calc(100% + 6px); display: flex; flex-direction: column; min-width: 220px; padding: 6px;
+                     background: #fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); }
+    .tb-menu .menu button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+    .tb-menu .menu button:hover { background: rgba(11, 42, 82, 0.08); }
+    .editor-panel { position: fixed; top: 72px; bottom: 80px; width: 250px; overflow: auto; padding: 12px; font-size: 13px; z-index: 9;
+                    background: var(--panel); backdrop-filter: blur(8px); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+    .editor-panel.palette { left: 12px; }
+    .editor-panel.props { right: 12px; bottom: auto; max-height: calc(100vh - 160px); }
+    .editor-panel h3 { margin: 0 0 8px; font-size: 14px; }
+    .editor-panel h4 { margin: 12px 0 6px; font-size: 13px; }
+    .editor-panel .help { opacity: 0.7; line-height: 1.45; margin: 8px 0 0; }
+    .palette .search { width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); font: inherit; margin-bottom: 8px; }
+    .palette .cat summary { cursor: pointer; font-weight: 600; padding: 6px 2px; }
+    .palette .items { display: grid; gap: 4px; padding-bottom: 6px; }
+    .palette .item { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 8px; text-align: left; cursor: pointer; }
+    .palette .item:hover { border-color: var(--accent); }
+    .props .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .props .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+    .props .field input[type=number] { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .props .field.slider { margin-top: 10px; }
+    .props .field.slider input { width: 100%; accent-color: var(--accent); }
+    .props .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .props .actions button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    .props .actions button:hover { border-color: var(--accent); }
+    .props .actions .danger { color: #b3261e; }
+    .props .array .field { margin-top: 6px; }
+    .props .swatches { display: grid; gap: 4px; }
+    .props .swatch { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 8px; cursor: pointer; text-align: left; }
+    .props .swatch.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .props .swatch i { width: 18px; height: 18px; border-radius: 4px; }
+    .editor-status { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; z-index: 11;
+                     background: var(--accent); color: #fff; font-size: 13px; max-width: calc(100vw - 32px); }
+    .editor-status.show { display: block; }
+    .editor-status.error { background: #b3261e; }
+    .editor-status.ok { background: #1f6f3f; }
+    @media (max-width: 900px) { .editor-panel { width: 200px; } }
+    @media (max-width: 600px) { .ui .hint { display: none; } .editor-panel.palette { display: none !important; } }
   </style>
   <script type="importmap">
     {
@@ -42,12 +101,13 @@
 </head>
 <body>
   <div id="loader"><div class="box"><div id="loaderText">Loading the farm…</div><div class="bar"><i id="loaderBar"></i></div></div></div>
-  <a class="back" href="/">← Back to the seminar</a>
-  <div class="ui">
-    <label>Time of day <input id="sun" type="range" min="4" max="60" step="0.5" value="28"></label>
-    <button id="spin" type="button">Auto-rotate</button>
+  <a class="back glass" href="/">← Back to the seminar</a>
+  <div class="ui glass">
+    <label>Time of day <input id="sun" type="range" min="4" max="60" step="0.5" value="30"></label>
+    <button id="spin" class="btn" type="button">Auto-rotate</button>
+    <button id="edit" class="btn alt" type="button" hidden>Edit farm</button>
     <span class="hint">Drag to orbit · scroll / pinch to zoom · right-drag to pan</span>
   </div>
-  <script type="module" src="/js/farm.js"></script>
+  <script type="module" src="/js/farm/main.js"></script>
 </body>
 </html>

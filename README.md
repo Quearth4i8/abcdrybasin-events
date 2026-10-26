@@ -53,25 +53,44 @@ When deploying, keep `DATA_DIR` on persistent storage so edits and uploads survi
 
 ## 3D farm (`/farm`)
 
-A realistic, interactive 3D farm built with Three.js at **`/farm`** (not linked from the
-site yet). The model is generated entirely by a Blender Python script: geometry,
-tileable PBR textures (color, roughness/metal, normal maps) and materials.
+An interactive, editable 3D model of an integrated climate-smart farm (Three.js) at **`/farm`**
+(not linked from the site yet). It starts with a built-in layout: walled compound, roads, house,
+poultry and goat zones, raised vegetable beds with drip lines, fish ponds with aerators, hydroponic
+greenhouses, solar panels, water tower and tanks, compost, herb spiral, beehives and an
+agroforestry orchard (olive, citrus, banana, date palm).
 
-- `tools/farm/build_farm.py` — Blender script: textures → materials → terrain, barn, silo,
-  farmhouse, windmill, fences, hay, corn, trees, pond… → `public/farm/farm.glb`.
-- `tools/farm/optimize.mjs` — turns repeated objects into GPU instances and applies meshopt
-  compression (run automatically by the build when Node.js is available).
-- `public/farm/index.html` + `public/js/farm.js` — viewer: sky, sun shadows, image-based
-  lighting, ambient occlusion, blended terrain (grass/dirt/soil), instanced wind-blown grass,
-  spinning windmill, time-of-day slider.
+**Editing.** Logged-in admins see an **Edit farm** button (anyone can try the editor with
+`/farm/?edit`, but only admins can save):
 
-Rebuild after changing the script (needs Blender 4.2+ and `npm install`):
+- *Add*: pick an object in the left panel (searchable), click the ground to place it
+  (`R` rotates, Shift+click keeps placing, `Esc` cancels).
+- *Select*: click an object, Shift+click to add more, Ctrl+A for all. Drag the gizmo, or type
+  exact X / Z / rotation / scale. `W` move · `E` rotate · `R` scale · Snap = 0.5 m / 15°.
+- *Duplicate* (Ctrl+D), *Delete* (Del), *Select all of this type*, *Repeat in a row* (N copies).
+- *Paint ground*: grass, dirt/mulch, plowed soil, asphalt road, gravel with an adjustable brush.
+- Undo / redo (Ctrl+Z / Ctrl+Shift+Z), **Save** (Ctrl+S) for everyone, export/import JSON,
+  reset to the default farm.
+
+The saved layout is stored in `DATA_DIR/farm-layout.json` (served at `GET /api/farm`, saved with
+`PUT /api/admin/farm`). It is not part of the admin JSON backup; use *Export layout* in the editor.
+
+**How it is built.**
+
+- `tools/farm/build_farm.py` — Blender script that generates the textures (color, roughness/metal,
+  normal maps), materials and a library of ~50 placeable assets → `public/farm/assets.glb`.
+- `tools/farm/optimize.mjs` — meshopt compression (run automatically by the build when Node.js is available).
+- `public/farm/index.html`, `public/js/farm/*.js` — viewer and editor: sky, sun shadows, image-based
+  lighting, ambient occlusion, painted terrain, instanced wind-blown grass, GPU-instanced objects,
+  spinning windmill/turbine/aerators, time-of-day slider.
+
+Rebuild the assets after changing the script (needs Blender 4.2+ and `npm install`):
 
 ```bash
 npm run farm:build                                   # blender -b -P tools/farm/build_farm.py
-blender -b -P tools/farm/build_farm.py -- --render tools/farm/out/preview.png --blend tools/farm/out/farm.blend
+blender -b -P tools/farm/build_farm.py -- --blend tools/farm/out/farm-assets.blend
 ```
 
-You can also open the script in Blender's *Scripting* tab and press *Run Script*; it rebuilds the
-scene in the open file. URL options for the viewer: `?quality=low` (phones are low by default),
-`?cam=x,y,z&target=x,y,z` to set the starting view.
+To add a new object, write a builder function decorated with `@asset("id", "Label", "Category")`
+in the script and rebuild; it appears in the editor automatically. Viewer URL options:
+`?quality=low` (default on phones), `?pr=0.5` (lower resolution), `?grass=20000`,
+`?cam=x,y,z&target=x,y,z`.
