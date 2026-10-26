@@ -294,3 +294,13 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 
   .size-row .size-val { grid-column: 2; grid-row: 3; }
   .size-row > .btn { grid-column: 3; grid-row: 3; }
 }
+
+/* ---------- QR codes ---------- */
+.qr-card { display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: start; }
+.qr-preview { width: 220px; aspect-ratio: 1; display: grid; place-items: center; border-radius: 16px; background: #fff; border: 1px solid var(--line); box-shadow: inset 0 0 0 6px #f6f9fc; }
+.qr-preview img { width: 88%; height: 88%; image-rendering: pixelated; animation: rise .4s var(--ease) both; }
+.qr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.qr-color { padding: 4px; height: 42px; cursor: pointer; }
+.qr-warn { margin: -6px 0 0; color: #a15c00; font-size: 12px; }
+.qr-warn:empty { display: none; }
+@media (max-width: 640px) { .qr-card { grid-template-columns: 1fr; } .qr-preview { width: 100%; max-width: 260px; margin: 0 auto; } }

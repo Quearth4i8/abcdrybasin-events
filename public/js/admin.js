@@ -269,6 +269,7 @@
     program: { title: 'Program', sub: 'Days, sessions and breaks — drag rows to reorder', render: viewProgram },
     highlights: { title: 'Highlights', sub: 'The four statements on the poster page', render: viewHighlights },
     partners: { title: 'Partners & logos', sub: 'Logos shown on the program header and the poster footer', render: viewPartners },
+    qr: { title: 'QR codes', sub: 'Print-ready QR codes for badges, flyers and slides', render: viewQr },
     settings: { title: 'Account & backup', sub: 'Credentials, export, import and reset', render: viewSettings }
   };
   const currentView = () => (VIEWS[location.hash.slice(1)] ? location.hash.slice(1) : 'dashboard');
@@ -587,6 +588,57 @@
       ],
       onSubmit: (data) => act(() => (p ? api('PUT', `/api/admin/partners/${p.id}`, data) : api('POST', '/api/admin/partners', data)), p ? 'Partner saved' : 'Partner added')
     });
+  }
+
+  function qrCard({ title, note, url, editable }) {
+    const link = input('qrLink', url, { type: 'url', placeholder: 'https://…', readOnly: !editable });
+    const color = h('input', { type: 'color', value: '#0b1f3a', class: 'qr-color', 'aria-label': 'QR colour' });
+    const sizeSel = h('select', {}, [[600, 'Small · 600 px'], [1200, 'Print · 1200 px'], [2400, 'Large print · 2400 px']]
+      .map(([v, l]) => h('option', { value: v, selected: v === 1200, text: l })));
+    const img = h('img', { alt: 'QR code preview' });
+    const png = h('a', { class: 'btn btn-primary btn-sm' }, 'Download PNG');
+    const svg = h('a', { class: 'btn btn-ghost btn-sm' }, 'Download SVG');
+    const open = h('a', { class: 'btn btn-ghost btn-sm', target: '_blank', rel: 'noopener' }, 'Test link ↗');
+    const warn = h('p', { class: 'qr-warn' });
+    const slug = (s) => s.replace(/^https?:\/\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 60) || 'link';
+    const update = () => {
+      const q = (fmt, extra = '') => `/api/admin/qr?format=${fmt}&color=${encodeURIComponent(color.value)}&data=${encodeURIComponent(link.value.trim())}${extra}`;
+      const ok = !!link.value.trim();
+      img.hidden = !ok;
+      img.src = ok ? q('png', '&size=600') : '';
+      png.href = ok ? q('png', `&size=${sizeSel.value}`) : '#';
+      svg.href = ok ? q('svg') : '#';
+      open.href = ok ? link.value.trim() : '#';
+      png.download = `qr-${slug(link.value)}.png`;
+      svg.download = `qr-${slug(link.value)}.svg`;
+      warn.textContent = /\/\/(localhost|127\.|\[::1\])/.test(link.value)
+        ? 'This is a local address — it only works on this PC. Use the public address for badges.' : '';
+    };
+    [link, color, sizeSel].forEach((n) => n.addEventListener('input', update));
+    update();
+    return h('div', { class: 'card qr-card' },
+      h('div', { class: 'qr-preview' }, img),
+      h('div', { class: 'stack' },
+        h('div', {}, h('h2', { text: title }), h('p', { class: 'muted', text: note })),
+        field('Link', link), warn,
+        h('div', { class: 'grid-2' }, field('Size', sizeSel), field('Colour', color)),
+        h('div', { class: 'qr-actions' }, png, svg, open)));
+  }
+
+  function viewQr() {
+    const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
+    return [
+      qrCard({
+        title: 'Website', editable: true,
+        note: 'Opens the event website. Ideal for badges — check the address is the final one before printing.',
+        url: local ? '' : `${location.origin}/`
+      }),
+      qrCard({
+        title: 'Registration form', editable: false,
+        note: 'Same code as on the poster. Change the link in Event details.',
+        url: content.event.registerUrl || ''
+      })
+    ];
   }
 
   function viewSettings() {

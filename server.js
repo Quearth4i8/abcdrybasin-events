@@ -364,6 +364,24 @@ admin.post('/upload', (req, res) => {
   res.status(201).json({ url: `/uploads/${name}` });
 });
 
+// QR code for any link, for badges and flyers: ?data=<url>&format=png|svg&size=<px>&color=<hex>
+admin.get('/qr', async (req, res) => {
+  const data = str(req.query.data, 1000);
+  if (!data) return res.status(400).json({ error: 'Missing link' });
+  const color = /^#[0-9a-f]{6}$/i.test(req.query.color || '') ? req.query.color : '#0b1f3a';
+  const opts = { errorCorrectionLevel: 'M', margin: 2, color: { dark: color, light: '#ffffff' } };
+  try {
+    if (req.query.format === 'svg') {
+      res.type('image/svg+xml').send(await QRCode.toString(data, { ...opts, type: 'svg' }));
+    } else {
+      const width = Math.min(4000, Math.max(200, Number(req.query.size) || 1200));
+      res.type('image/png').send(await QRCode.toBuffer(data, { ...opts, width }));
+    }
+  } catch (e) {
+    res.status(400).json({ error: 'Could not create a QR code for that link' });
+  }
+});
+
 admin.post('/account', (req, res) => {
   const { currentPassword, newUsername, newPassword } = req.body || {};
   if (!verifyPassword(String(currentPassword || ''), db.admin.passwordHash)) {
