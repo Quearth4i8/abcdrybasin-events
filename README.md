@@ -50,3 +50,28 @@ ADMIN_USER=maha ADMIN_PASSWORD='a-strong-password' npm start
   (12 h); login is rate-limited; uploads accept PNG/JPG/WEBP/GIF only (max 8 MB).
 
 When deploying, keep `DATA_DIR` on persistent storage so edits and uploads survive restarts.
+
+## 3D farm (`/farm`)
+
+A realistic, interactive 3D farm built with Three.js at **`/farm`** (not linked from the
+site yet). The model is generated entirely by a Blender Python script: geometry,
+tileable PBR textures (color, roughness/metal, normal maps) and materials.
+
+- `tools/farm/build_farm.py` — Blender script: textures → materials → terrain, barn, silo,
+  farmhouse, windmill, fences, hay, corn, trees, pond… → `public/farm/farm.glb`.
+- `tools/farm/optimize.mjs` — turns repeated objects into GPU instances and applies meshopt
+  compression (run automatically by the build when Node.js is available).
+- `public/farm/index.html` + `public/js/farm.js` — viewer: sky, sun shadows, image-based
+  lighting, ambient occlusion, blended terrain (grass/dirt/soil), instanced wind-blown grass,
+  spinning windmill, time-of-day slider.
+
+Rebuild after changing the script (needs Blender 4.2+ and `npm install`):
+
+```bash
+npm run farm:build                                   # blender -b -P tools/farm/build_farm.py
+blender -b -P tools/farm/build_farm.py -- --render tools/farm/out/preview.png --blend tools/farm/out/farm.blend
+```
+
+You can also open the script in Blender's *Scripting* tab and press *Run Script*; it rebuilds the
+scene in the open file. URL options for the viewer: `?quality=low` (phones are low by default),
+`?cam=x,y,z&target=x,y,z` to set the starting view.

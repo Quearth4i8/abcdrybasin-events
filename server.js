@@ -433,6 +433,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Static files
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+// three.js for the 3D farm page (/farm), served from node_modules — no CDN needed
+app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three'), { maxAge: '7d' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 

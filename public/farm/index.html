@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D Farm · ABCDryBASIN</title>
+  <meta name="description" content="Interactive 3D farm scene.">
+  <meta name="theme-color" content="#0b2a52">
+  <link rel="icon" href="/assets/abcdrybasin.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --ink: #10202e; --panel: rgba(255, 255, 255, 0.82); --accent: #0b2a52; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #b9c9d8; font-family: Poppins, system-ui, sans-serif; color: var(--ink); }
+    canvas { display: block; touch-action: none; }
+    .ui { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+          padding: 10px 14px; border-radius: 12px; background: var(--panel); backdrop-filter: blur(8px);
+          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); font-size: 13px; max-width: calc(100vw - 32px); }
+    .ui label { display: flex; gap: 8px; align-items: center; }
+    .ui input[type=range] { width: 140px; accent-color: var(--accent); }
+    .ui button { font: inherit; border: 0; border-radius: 8px; padding: 6px 10px; background: var(--accent); color: #fff; cursor: pointer; }
+    .ui .hint { opacity: 0.7; }
+    .back { position: fixed; left: 16px; top: 16px; padding: 8px 12px; border-radius: 10px; background: var(--panel);
+            color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 500; backdrop-filter: blur(8px); }
+    #loader { position: fixed; inset: 0; display: grid; place-items: center; background: #c6d4e0; transition: opacity 0.6s; z-index: 5; }
+    #loader.done { opacity: 0; pointer-events: none; }
+    #loader .box { width: min(320px, 80vw); text-align: center; font-size: 14px; }
+    #loader .bar { height: 6px; margin-top: 12px; border-radius: 3px; background: rgba(11, 42, 82, 0.15); overflow: hidden; }
+    #loader .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+    @media (max-width: 600px) { .ui .hint { display: none; } }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="loader"><div class="box"><div id="loaderText">Loading the farm…</div><div class="bar"><i id="loaderBar"></i></div></div></div>
+  <a class="back" href="/">← Back to the seminar</a>
+  <div class="ui">
+    <label>Time of day <input id="sun" type="range" min="4" max="60" step="0.5" value="28"></label>
+    <button id="spin" type="button">Auto-rotate</button>
+    <span class="hint">Drag to orbit · scroll / pinch to zoom · right-drag to pan</span>
+  </div>
+  <script type="module" src="/js/farm.js"></script>
+</body>
+</html>

@@ -3,3 +3,4 @@ data/db.json
 data/*.tmp
 data/uploads/
 .env
+tools/farm/out/
