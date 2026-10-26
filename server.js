@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.PORT || 3000;
+// Bind IPv4 explicitly: on Windows an IPv6 listener can silently coexist with another app's IPv4 listener on the same port
+const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SEED_FILE = path.join(__dirname, 'data', 'seed.json');
@@ -414,7 +416,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error' });
 });
 
-app.listen(PORT, (err) => {
+app.listen(PORT, HOST, (err) => {
   // Express 5 passes listen errors (e.g. port already in use) here instead of throwing
   if (err) {
     console.error(err.code === 'EADDRINUSE'
