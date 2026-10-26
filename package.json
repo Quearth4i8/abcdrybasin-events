@@ -1,0 +1,18 @@
+{
+  "name": "abcdrybasin-events",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seminar on Climate Smart Technologies — event website with admin panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4"
+  }
+}

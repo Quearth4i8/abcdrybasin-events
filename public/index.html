@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Climate Smart Technologies · ABCDryBASIN</title>
+  <meta name="description" content="Seminar on Climate Smart Technologies — ABCDryBASIN, Bizerte.">
+  <meta name="theme-color" content="#0b2a52">
+  <link rel="icon" href="/assets/abcdrybasin.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Questrial&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+  <header class="nav" id="nav">
+    <a class="nav-brand" href="#overview">
+      <img data-bind-src="event.logo" alt="ABCDryBASIN logo">
+      <span>ABCDryBASIN</span>
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#overview" data-section="overview">Overview</a>
+      <a href="#program" data-section="program">Program</a>
+      <a href="#partners" data-section="partners">Partners</a>
+    </nav>
+    <a class="btn btn-primary nav-cta" id="navRegister" target="_blank" rel="noopener">Register</a>
+    <button class="nav-toggle" id="navToggle" aria-label="Open menu"><span></span><span></span></button>
+  </header>
+
+  <main>
+    <!-- ============ PAGE 1: POSTER / OVERVIEW ============ -->
+    <section class="sheet poster" id="overview">
+      <div class="poster-head reveal">
+        <img class="poster-logo" data-bind-src="event.logo" alt="">
+        <h1 class="poster-title">
+          <span data-bind="event.seminarTitle"></span>
+          <span data-bind="event.title"></span>
+        </h1>
+      </div>
+
+      <div class="poster-body">
+        <div class="poster-left">
+          <ul class="features" id="features"></ul>
+
+          <div class="facts reveal">
+            <div class="fact">
+              <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="9" width="38" height="34" rx="5"/><path d="M5 18h38M14 5v8M24 5v8M34 5v8"/><g class="dots"><rect x="11" y="23" width="5" height="4"/><rect x="19" y="23" width="5" height="4"/><rect x="27" y="23" width="5" height="4"/><rect x="35" y="23" width="3" height="4"/><rect x="11" y="31" width="5" height="4"/><rect x="19" y="31" width="5" height="4"/><rect x="27" y="31" width="5" height="4"/></g></svg>
+              <div class="fact-text"><strong data-bind="event.dateLabel"></strong><strong data-bind="event.dateSub"></strong></div>
+            </div>
+            <div class="fact">
+              <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="19"/><path d="M24 12v13l-8 6"/></svg>
+              <div class="fact-text"><strong data-bind="event.timeLabel"></strong></div>
+            </div>
+            <div class="fact fact-loc">
+              <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 44s14-13.5 14-25a14 14 0 1 0-28 0c0 11.5 14 25 14 25z"/><circle cx="24" cy="19" r="5"/></svg>
+              <div class="fact-text"><span data-bind="event.location"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="poster-photo reveal">
+          <div class="photo-circle"><img data-bind-src="event.heroImage" alt="Farmer using climate smart technology in the field"></div>
+        </div>
+      </div>
+
+      <div class="register reveal">
+        <div class="register-text">
+          <span data-bind="event.registerLabel"></span>
+          <a class="register-url" id="registerUrl" target="_blank" rel="noopener"></a>
+        </div>
+        <img class="qr" id="qr" alt="QR code to register">
+        <a class="register-mail" id="registerMail">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12"/><path d="M6.5 8.5h11v7h-11z M6.5 8.8l5.5 4 5.5-4" fill="none" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          <span class="bar">|</span><span data-bind="event.email"></span>
+        </a>
+      </div>
+
+      <div class="partner-strip reveal" id="partners"></div>
+      <svg class="poster-wave" viewBox="0 0 1000 60" preserveAspectRatio="none" aria-hidden="true"><path d="M0 60 C 250 0, 750 0, 1000 40 L1000 60 Z"/></svg>
+    </section>
+
+    <!-- ============ PAGE 2: PROGRAM ============ -->
+    <section class="sheet program" id="program">
+      <div class="program-logos reveal" id="headerLogos"></div>
+      <h2 class="program-title reveal" data-bind="event.programTitle"></h2>
+      <div class="day-chips reveal" id="dayChips"></div>
+      <div id="days"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>© <span id="year"></span> ABCDryBASIN · <span data-bind="event.title"></span></span>
+    <a href="/admin" class="footer-admin">Admin</a>
+  </footer>
+
+  <script src="/js/site.js"></script>
+</body>
+</html>
