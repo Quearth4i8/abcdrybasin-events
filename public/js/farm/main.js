@@ -17,6 +17,7 @@ import { createSky, createTerrain, createForest, GroundMask, Grass, terrainHeigh
 import { Library, Farm } from './library.js';
 import { defaultLayout, defaultZones, defaultDashboard } from './default-layout.js';
 import { Hud } from './hud.js';
+import { Characters } from './characters.js';
 
 const params = new URLSearchParams(location.search);
 const QUALITY = params.get('quality') || (matchMedia('(pointer: coarse)').matches ? 'low' : 'high');
@@ -93,12 +94,12 @@ const loaderText = document.getElementById('loaderText');
 const mask = new GroundMask();
 let lib = null, farm = null, grass = null, editor = null;
 
-function rebuildGrass() {
-  if (!grass) return;
-  const cell = 0.5, half = grass.half, n = Math.ceil((2 * half) / cell);
+/** Rasterise oriented boxes (and round posts) into a 0.5 m grid -> fast (x, z) => blocked lookup. */
+function blockGrid(boxes, posts = [], half = 92, margin = 0.2) {
+  const cell = 0.5, n = Math.ceil((2 * half) / cell);
   const blocked = new Uint8Array(n * n);
   const v = new THREE.Vector3();
-  for (const f of farm.footprints()) {
+  for (const f of boxes) {
     const b = f.box, r = f.r + 0.5;
     const i0 = Math.max(0, Math.floor((f.x - r + half) / cell)), i1 = Math.min(n - 1, Math.ceil((f.x + r + half) / cell));
     const j0 = Math.max(0, Math.floor((f.z - r + half) / cell)), j1 = Math.min(n - 1, Math.ceil((f.z + r + half) / cell));
@@ -106,14 +107,29 @@ function rebuildGrass() {
       for (let i = i0; i <= i1; i++) {
         const x = -half + (i + 0.5) * cell, z = -half + (j + 0.5) * cell;
         v.set(x, 0, z).applyMatrix4(f.inv);
-        if (v.x > b.min.x - 0.2 && v.x < b.max.x + 0.2 && v.z > b.min.z - 0.2 && v.z < b.max.z + 0.2) blocked[j * n + i] = 1;
+        if (v.x > b.min.x - margin && v.x < b.max.x + margin && v.z > b.min.z - margin && v.z < b.max.z + margin) blocked[j * n + i] = 1;
       }
     }
   }
-  grass.rebuild(mask, (x, z) => {
+  for (const p of posts) {
+    const i = Math.floor((p.x + half) / cell), j = Math.floor((p.z + half) / cell), k = Math.ceil(p.r / cell);
+    for (let dj = -k; dj <= k; dj++) for (let di = -k; di <= k; di++) {
+      if (i + di >= 0 && j + dj >= 0 && i + di < n && j + dj < n && Math.hypot(di, dj) * cell <= p.r + 0.25) blocked[(j + dj) * n + i + di] = 1;
+    }
+  }
+  return (x, z) => {
     const i = Math.floor((x + half) / cell), j = Math.floor((z + half) / cell);
     return i >= 0 && j >= 0 && i < n && j < n && blocked[j * n + i] === 1;
-  });
+  };
+}
+
+function rebuildGrass() {
+  if (!grass) return;
+  grass.rebuild(mask, blockGrid(farm.footprints(), [], grass.half));
+  if (chars) {
+    const { boxes, posts } = farm.obstacles();
+    chars.blocked = blockGrid(boxes, posts, 92, 0.35);
+  }
 }
 
 async function loadLayout() {
@@ -145,7 +161,18 @@ async function loadCustomModels() {
   })));
   return loaded.filter(Boolean);
 }
-const [gltf, saved, customModels] = await Promise.all([
+
+/** Rigged characters shipped with the site (public/farm/characters/characters.json). */
+async function loadCharacters() {
+  try {
+    const list = await (await fetch('/farm/characters/characters.json')).json();
+    const loaded = await Promise.all(list.map((c) => gltfLoader.loadAsync(`/farm/characters/${c.file}`).then((g) => [c, g], () => null)));
+    return loaded.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+const [gltf, saved, customModels, characterModels] = await Promise.all([
   new Promise((resolve, reject) => gltfLoader.load('/farm/assets.glb', resolve, (e) => {
     if (e.total) loaderBar.style.width = `${(e.loaded / e.total) * 100}%`;
   }, reject)).catch((err) => {
@@ -155,9 +182,11 @@ const [gltf, saved, customModels] = await Promise.all([
   }),
   loadLayout(),
   loadCustomModels(),
+  loadCharacters(),
 ]);
 
 lib = new Library(gltf, renderer);
+for (const [entry, g] of characterModels) lib.addCharacter({ ...entry, builtin: true }, g);
 for (const [entry, g] of customModels) lib.addModel(entry, g);
 scene.add(createTerrain(lib.layers, mask));
 createForest(scene, HIGH);
@@ -172,6 +201,8 @@ for (const m of lib.waterMaterials) {
   m.needsUpdate = true;
 }
 farm = new Farm(scene, lib);
+const chars = new Characters(scene, lib);
+farm.chars = chars;
 grass = new Grass(scene, HIGH, Number(params.get('grass')) || undefined);
 if (saved && Array.isArray(saved.objects)) {
   farm.load(saved.objects);
@@ -199,6 +230,83 @@ setInterval(async () => {
   const d = await loadDashboard();
   if (d && d.updatedAt !== hud.dashboard?.updatedAt) hud.setDashboard(d);
 }, 30000);
+// ---------------------------------------------------------------- walk around as a character
+const walkBtn = document.getElementById('walk');
+const walkHelp = document.getElementById('walkHelp');
+function startWalking(o) {
+  o = o || farm.objects.filter((x) => lib.assets.get(x.asset).character)
+    .sort((a, b) => Math.hypot(a.x - controls.target.x, a.z - controls.target.z) - Math.hypot(b.x - controls.target.x, b.z - controls.target.z))[0];
+  if (!o || editor?.active) return;
+  const c = chars.take(o);
+  if (!c) return;
+  hud.stopTour();
+  const p = c.pos, back = new THREE.Vector3(Math.sin(c.heading), 0, Math.cos(c.heading)).multiplyScalar(-6);
+  hud.flyTo({ cam: new THREE.Vector3(p.x + back.x, 3.6, p.z + back.z), target: new THREE.Vector3(p.x, 1.4, p.z) }, 1.2);
+  walkBtn.textContent = 'Stop walking';
+  document.body.classList.add('walking');
+}
+function stopWalking() {
+  chars.release();
+  walkBtn.textContent = '🚶 Walk as farmer';
+  document.body.classList.remove('walking');
+}
+walkBtn.hidden = !farm.objects.some((x) => lib.assets.get(x.asset).character);
+walkBtn.addEventListener('click', () => (chars.player ? stopWalking() : startWalking()));
+addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, textarea, select') || editor?.active) return;
+  const k = e.key.toLowerCase();
+  if (chars.player && k === 'escape') stopWalking();
+  if (chars.player && ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
+    chars.keys.add(k);
+    e.preventDefault();
+  }
+});
+addEventListener('keyup', (e) => chars.keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => chars.keys.clear());
+// click a character (not in the editor) to take control of it
+{
+  let down = null;
+  const ray = new THREE.Raycaster();
+  renderer.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (editor?.active || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    ray.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+    const hit = chars.pickHit(ray);
+    if (hit) startWalking(hit.o);
+  });
+}
+// touch joystick
+{
+  const pad = document.getElementById('joystick'), knob = pad.querySelector('i');
+  let id = null;
+  const move = (e) => {
+    const r = pad.getBoundingClientRect();
+    let x = (e.clientX - r.left - r.width / 2) / (r.width / 2), y = (e.clientY - r.top - r.height / 2) / (r.height / 2);
+    const l = Math.hypot(x, y);
+    if (l > 1) { x /= l; y /= l; }
+    knob.style.transform = `translate(${x * 32}px, ${y * 32}px)`;
+    chars.touch.x = x;
+    chars.touch.z = -y * (l > 0.95 ? 1.6 : 1); // push to the edge to run
+  };
+  pad.addEventListener('pointerdown', (e) => { id = e.pointerId; pad.setPointerCapture(id); move(e); });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === id) move(e); });
+  const end = () => { id = null; chars.touch.x = chars.touch.z = 0; knob.style.transform = ''; };
+  pad.addEventListener('pointerup', end);
+  pad.addEventListener('pointercancel', end);
+}
+// model credits (CC BY licences require attribution)
+const credits = [...lib.assets.values()].filter((a) => a.credit).map((a) => a.credit);
+if (credits.length) {
+  const box = document.getElementById('credits');
+  box.hidden = false;
+  box.replaceChildren('3D models: ', ...credits.flatMap((c, i) => {
+    const a = document.createElement('a');
+    a.href = c.url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = `${c.text} (${c.license})`;
+    return i ? [', ', a] : [a];
+  }));
+}
+
 const hudBtn = document.getElementById('hudToggle');
 let hudOn = !matchMedia('(max-width: 640px)').matches && params.get('hud') !== '0';
 const applyHud = () => { hud.setVisible(hudOn); hudBtn.textContent = hudOn ? 'Hide dashboard' : 'Show dashboard'; };
@@ -207,6 +315,7 @@ applyHud();
 
 const loader = document.getElementById('loader');
 if (STILL) loader.remove(); else loader.classList.add('done');
+window.__farm = { farm, chars, hud, camera, controls }; // handy for debugging in the console
 window.__farmReady = true;
 
 // ---------------------------------------------------------------- editor (admins, or ?edit to try it)
@@ -227,6 +336,8 @@ if (await canEdit()) {
       editor = new Editor({ scene, camera, renderer, controls, farm, lib, mask, rebuildGrass, gltfLoader, hud });
     }
     editor.setActive(!editor.active);
+    chars.setPaused(editor.active);
+    if (editor.active) stopWalking();
     editBtn.textContent = editor.active ? 'Exit editor' : 'Edit farm';
   });
   if (params.get('edit') === 'open') editBtn.click();
@@ -258,6 +369,13 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   wind.uTime.value += dt;
   farm.animate(dt);
+  const before = chars.player ? chars.player.pos.clone() : null;
+  chars.tick(dt, camera);
+  if (chars.player) { // third-person follow: move the camera with the character, keep the user's orbit
+    const p = chars.player.pos;
+    camera.position.add(p.clone().sub(before));
+    controls.target.lerp(new THREE.Vector3(p.x, terrainHeight(p.x, p.z) + 1.4, p.z), Math.min(1, dt * 6));
+  }
   for (const m of lib.waterMaterials) m.normalMap?.offset.set(wind.uTime.value * 0.004, wind.uTime.value * 0.006);
   hud.update(dt);
   controls.update();

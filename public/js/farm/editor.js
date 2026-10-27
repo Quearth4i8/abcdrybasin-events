@@ -2,6 +2,7 @@
 // paint the ground (dirt, soil, paving, gravel, grass), undo/redo, save (admin), import/export.
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { terrainHeight, LAYERS } from './world.js';
 import { defaultLayout, defaultZones, defaultDashboard } from './default-layout.js';
 
@@ -560,7 +561,7 @@ export class Editor {
     this.cancelPlacing();
     this.setTool('place');
     const a = this.lib.assets.get(assetId);
-    this.ghost = { asset: assetId, ry: 0, obj: a.template.clone(true) };
+    this.ghost = { asset: assetId, ry: 0, obj: a.character ? SkeletonUtils.clone(a.template) : a.template.clone(true) };
     this.ghost.obj.traverse((m) => { if (m.isMesh) { m.castShadow = true; } });
     this.ghost.obj.visible = false;
     this.scene.add(this.ghost.obj);

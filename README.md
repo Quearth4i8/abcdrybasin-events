@@ -92,6 +92,24 @@ curl -X PATCH http://SERVER/api/farm/dashboard -H 'Authorization: Bearer some-lo
 Rows are matched by `label`; open pages refresh every 30 s. The dashboard is stored in
 `DATA_DIR/farm-dashboard.json`.
 
+**Walking characters.** Farmers wander around the spot where they are placed (walking, pausing,
+crouching to tend crops) and avoid buildings, beds, water, fences and tree trunks. Visitors can
+click a farmer, or press **🚶 Walk as farmer**, to walk around themselves: W A S D / arrow keys,
+Shift to run, drag to look around, Esc to stop (an on-screen joystick appears on touch screens).
+Characters are listed under *Characters* in the editor palette like any other object.
+
+Characters live in `public/farm/characters/` (listed in `characters.json`, with the licence
+credit shown on the page). `tools/farm/rig_character.py` turns a static T-pose model into one:
+it adds a skeleton, skin weights and Idle / Walk / Run / Work animations and compresses the
+textures:
+
+```bash
+blender -b -P tools/farm/rig_character.py -- farmer.glb public/farm/characters/farmer.glb --height 1.75
+```
+
+A `.glb` uploaded in the editor that already has a skeleton and animations named `Idle` and
+`Walk` (`Run` and `Work` optional), e.g. from Mixamo, also becomes a walking character.
+
 **Using your own 3D models.** Every object can be swapped for a better model, and new ones
 (hydroponic systems, machines…) can be added without touching code:
 

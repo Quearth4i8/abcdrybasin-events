@@ -62,6 +62,9 @@ export class Library {
    * built-in asset replaces it everywhere it is placed.
    */
   addModel(entry, gltf) {
+    let skinned = false;
+    gltf.scene.traverse((m) => { if (m.isSkinnedMesh) skinned = true; });
+    if (skinned && gltf.animations.length) return this.addCharacter(entry, gltf);
     const inner = gltf.scene;
     inner.updateMatrixWorld(true);
     const b = new THREE.Box3().setFromObject(inner);
@@ -84,8 +87,30 @@ export class Library {
     return asset;
   }
 
+  /**
+   * Animated character (skinned mesh with clips named Idle / Walk, optionally Run / Work).
+   * Expected at real scale, standing on the origin, facing +Z.
+   */
+  addCharacter(entry, gltf) {
+    const node = gltf.scene;
+    node.scale.setScalar(entry.scale || 1);
+    node.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(node);
+    box.min.x = box.min.z = -0.35; // the bind pose is a T-pose: use a body-sized footprint
+    box.max.x = box.max.z = 0.35;
+    const prev = this.assets.get(entry.id);
+    const asset = {
+      id: entry.id, label: entry.label || prev?.label || entry.id, category: entry.category || 'Characters',
+      clearGrass: false, custom: !entry.builtin, character: true, template: node, animations: gltf.animations,
+      parts: [], rotors: [], box, wander: entry.wander ?? 10, credit: entry.credit,
+      size: box.getSize(new THREE.Vector3()),
+    };
+    this.assets.set(entry.id, asset);
+    return asset;
+  }
+
   categories() {
-    const order = ['My models', 'Buildings', 'Hydroponics', 'Crops', 'Water', 'Energy & water', 'Livestock', 'Trees',
+    const order = ['My models', 'Characters', 'Buildings', 'Hydroponics', 'Crops', 'Water', 'Energy & water', 'Livestock', 'Trees',
       'Walls & fences', 'Props'];
     const out = new Map(order.map((c) => [c, []]));
     for (const a of this.assets.values()) {
@@ -167,6 +192,7 @@ export class Farm {
 
   /** Re-create the instanced meshes of an asset whose model was replaced, keeping its objects. */
   refreshAsset(id) {
+    if (this.lib.assets.get(id)?.character) { this.chars?.refresh(id); return; }
     const b = this.batches.get(id);
     if (!b) return;
     for (const m of b.meshes) { this.scene.remove(m); m.dispose(); }
@@ -176,6 +202,11 @@ export class Farm {
   }
 
   attach(o) {
+    if (this.lib.assets.get(o.asset).character) {
+      Farm.matrixOf(o, o.matrix);
+      this.chars?.attach(o);
+      return;
+    }
     const b = this.batch(o.asset);
     if (b.slots.length >= b.capacity) this.grow(b, b.capacity * 2);
     o.slot = b.slots.length;
@@ -195,10 +226,20 @@ export class Farm {
   }
 
   update(o) {
+    if (this.lib.assets.get(o.asset).character) {
+      Farm.matrixOf(o, o.matrix);
+      this.chars?.update(o);
+      return;
+    }
     this.write(this.batches.get(o.asset), o.slot);
   }
 
   remove(o) {
+    if (this.lib.assets.get(o.asset).character) {
+      this.chars?.detach(o);
+      this.objects.splice(this.objects.indexOf(o), 1);
+      return;
+    }
     const b = this.batches.get(o.asset);
     const last = b.slots.pop();
     if (last !== o) {
@@ -211,6 +252,7 @@ export class Farm {
   }
 
   clear() {
+    this.chars?.clear();
     for (const b of this.batches.values()) {
       b.slots.length = 0;
       this.dirty(b);
@@ -230,11 +272,29 @@ export class Farm {
 
   pick(raycaster) {
     const hits = raycaster.intersectObjects(this.pickables, false);
+    const ch = this.chars?.pickHit(raycaster);
     for (const h of hits) {
       const b = h.object.userData.batch;
+      if (ch && ch.distance < h.distance) return ch.o;
       if (b && h.instanceId !== undefined && b.slots[h.instanceId]) return b.slots[h.instanceId];
     }
-    return null;
+    return ch?.o ?? null;
+  }
+
+  /** Obstacles for walking characters: buildings, beds, water, walls, fences, tree trunks. */
+  obstacles() {
+    const boxes = [], posts = [];
+    for (const o of this.objects) {
+      const a = this.lib.assets.get(o.asset);
+      if (a.character || /^(road_line|zebra|parking_bays|curb)$/.test(a.id)) continue;
+      if (a.clearGrass || a.category === 'Walls & fences') {
+        boxes.push({ inv: new THREE.Matrix4().copy(o.matrix).invert(), box: a.box, x: o.x, z: o.z,
+          r: Math.hypot(a.box.max.x - a.box.min.x, a.box.max.z - a.box.min.z) * 0.5 * Math.max(o.sx, o.sz) });
+      } else if (a.category === 'Trees') {
+        posts.push({ x: o.x, z: o.z, r: 0.45 * Math.max(o.sx, o.sz) });
+      }
+    }
+    return { boxes, posts };
   }
 
   /** World-space oriented footprint test for grass clearing. */

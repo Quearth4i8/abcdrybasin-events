@@ -165,6 +165,12 @@ export function defaultLayout(mask) {
   for (let i = 0; i < 8; i++) put('round_bale', -80 + r() * 20, 10 + r() * 40, r() * 360);
   for (let i = 0; i < 10; i++) put(r() < 0.5 ? 'rock' : 'rock_small', (r() - 0.5) * 170, 66 + r() * 20, r() * 360);
 
+  // ---- farmers at work (animated characters, if available)
+  put('farmer', -26, -5.75, 90);
+  put('farmer', 30, 30.5, -90);
+  put('farmer', 12, -30.5, 0);
+  put('farmer', -40, -34, 180);
+
   return o.map((x) => ({ sx: 1, sy: 1, sz: 1, ...x }));
 }
 

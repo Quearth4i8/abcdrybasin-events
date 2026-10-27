@@ -1,0 +1,13 @@
+[
+  {
+    "id": "farmer",
+    "label": "Farmer (walks around)",
+    "file": "farmer.glb",
+    "wander": 10,
+    "credit": {
+      "text": "“Farmer” by samsikua",
+      "url": "https://sketchfab.com/3d-models/farmer-49197309a96946b4b194947dcda52ced",
+      "license": "CC BY 4.0"
+    }
+  }
+]
