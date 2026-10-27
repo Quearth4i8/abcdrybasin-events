@@ -158,14 +158,14 @@ function treeGeometry(kind) {
     return g;
   };
   if (kind === 'cypress') {
-    const crown = new THREE.SphereGeometry(1, 7, 6);
+    const crown = new THREE.SphereGeometry(1, 6, 5);
     crown.scale(0.95, 3.8, 0.95);
     crown.translate(0, 4.6, 0);
     parts.push([lumpy(crown), new THREE.Color(0.06, 0.12, 0.05)]);
   } else {
     // a crown made of three overlapping blobs reads as foliage rather than a ball
     for (const [x, y, z, r] of [[0, 5.2, 0, 2.4], [1.5, 4.3, 0.6, 1.8], [-1.3, 4.4, -0.8, 1.9]]) {
-      const blob = new THREE.IcosahedronGeometry(1, 1);
+      const blob = new THREE.SphereGeometry(1, 7, 5); // ~60 triangles: plenty at forest distance
       blob.scale(r, r * 0.85, r);
       blob.translate(x, y, z);
       parts.push([lumpy(blob), new THREE.Color(0.09 + y * 0.004, 0.17 + y * 0.004, 0.06)]);
@@ -197,9 +197,11 @@ export function createForest(scene, high) {
   const kinds = [['broad', 0.68], ['cypress', 0.32]];
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
+  const SECTORS = 16; // one InstancedMesh per angular sector -> sectors behind the camera are culled
   for (const [kind, share] of kinds) {
     const count = Math.round(total * share);
-    const mesh = new THREE.InstancedMesh(treeGeometry(kind), mat, count);
+    const geo = treeGeometry(kind);
+    const buckets = Array.from({ length: SECTORS }, () => []);
     let n = 0;
     for (let tries = 0; n < count && tries < count * 20; tries++) {
       const x = (rnd() * 2 - 1) * 340, z = (rnd() * 2 - 1) * 340;
@@ -212,14 +214,18 @@ export function createForest(scene, high) {
       q.setFromAxisAngle(up, rnd() * Math.PI * 2);
       const sc = 0.8 + rnd() * 0.9;
       s.set(sc, sc * (0.85 + rnd() * 0.4), sc);
-      mesh.setMatrixAt(n, m4.compose(p, q, s));
       tint.setRGB(0.75 + rnd() * 0.35, 0.8 + rnd() * 0.3, 0.75 + rnd() * 0.25);
-      mesh.setColorAt(n, tint);
+      const sector = Math.floor(((Math.atan2(z, x) + Math.PI) / (2 * Math.PI)) * SECTORS) % SECTORS;
+      buckets[sector].push([m4.compose(p, q, s).clone(), tint.clone()]);
       n++;
     }
-    mesh.count = n;
-    mesh.computeBoundingSphere();
-    scene.add(mesh);
+    for (const list of buckets) {
+      if (!list.length) continue;
+      const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach(([m, c], i) => { mesh.setMatrixAt(i, m); mesh.setColorAt(i, c); });
+      mesh.computeBoundingSphere();
+      scene.add(mesh);
+    }
   }
 }
 
@@ -387,7 +393,7 @@ function mulberry32(a) {
 }
 
 function bladeGeometry() {
-  const BLADES = 7, SEGS = 4;
+  const BLADES = 5, SEGS = 3;
   const pos = [], nrm = [], col = [], idx = [];
   const rnd = mulberry32(42);
   for (let b = 0; b < BLADES; b++) {
@@ -419,22 +425,39 @@ function bladeGeometry() {
 
 export class Grass {
   constructor(scene, high, count) {
-    this.count = count ?? (high ? 150000 : 40000);
-    this.half = high ? 88 : 70;
+    this.count = count ?? (high ? 120000 : 40000);
+    this.half = 88;
+    this.tile = 16;
+    this.drawDist = high ? 80 : 55; // metres; changed by the quality setting
+    this.n = Math.ceil((2 * this.half) / this.tile);
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
     addWind(mat, 0.35, 2.0, true);
-    this.mesh = new THREE.InstancedMesh(bladeGeometry(), mat, this.count);
-    this.mesh.receiveShadow = true;
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-    scene.add(this.mesh);
+    this.fade = { value: this.drawDist };
+    const prev = mat.onBeforeCompile;
+    mat.onBeforeCompile = (sh, r) => { // shrink blades towards the draw distance: no visible tile edge
+      prev(sh, r);
+      sh.uniforms.grassFade = this.fade;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float grassFade;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 gPos = (modelMatrix * instanceMatrix[3]).xyz;
+            transformed *= 1.0 - smoothstep(grassFade * 0.65, grassFade, distance(gPos.xz, cameraPosition.xz));
+          #endif`);
+    };
+    this.geo = bladeGeometry();
+    this.mat = mat;
+    this.meshes = [];
+    this.scene = scene;
   }
+
   /** blocked(x, z) -> true where something stands that clears grass. */
   rebuild(mask, blocked) {
     const rnd = mulberry32(7);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
-    const H = this.half;
+    const H = this.half, T = this.tile, N = this.n;
+    const tiles = Array.from({ length: N * N }, () => []);
     let n = 0;
     for (let tries = 0; n < this.count && tries < this.count * 3; tries++) {
       const x = (rnd() * 2 - 1) * H, z = (rnd() * 2 - 1) * H;
@@ -446,16 +469,33 @@ export class Grass {
       p.set(x, terrainHeight(x, z) - 0.02, z);
       q.setFromAxisAngle(up, rnd() * Math.PI * 2);
       const mowed = Math.abs(x) < 61 && Math.abs(z) < 61; // tidy lawn inside the compound, wild grass outside
-      const sc = (0.7 + rnd() * 0.7) * (1 - bare) * (mowed ? 0.8 : 1);
+      const sc = (0.75 + rnd() * 0.75) * (1 - bare) * (mowed ? 0.85 : 1.1);
       s.set(sc, sc * (0.8 + rnd() * 0.5) * (mowed ? 0.5 : 1), sc);
-      this.mesh.setMatrixAt(n, m4.compose(p, q, s));
       const dry = Math.max(0, rnd() - 0.75) * 2.2;
       tint.setRGB(0.85 + 0.35 * dry + rnd() * 0.15, 0.9 + 0.2 * dry + rnd() * 0.15, 0.7 + rnd() * 0.25);
-      this.mesh.setColorAt(n, tint);
+      const i = Math.min(N - 1, Math.floor((x + H) / T)), j = Math.min(N - 1, Math.floor((z + H) / T));
+      tiles[j * N + i].push([m4.compose(p, q, s).clone(), tint.clone()]);
       n++;
     }
-    this.mesh.count = n;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    for (const m of this.meshes) { this.scene.remove(m); m.dispose(); }
+    this.meshes = [];
+    tiles.forEach((list, k) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(this.geo, this.mat, list.length);
+      list.forEach(([m, c], i) => { mesh.setMatrixAt(i, m); mesh.setColorAt(i, c); });
+      mesh.receiveShadow = true;
+      mesh.computeBoundingSphere();
+      mesh.userData.center = new THREE.Vector2(-H + ((k % N) + 0.5) * T, -H + (Math.floor(k / N) + 0.5) * T);
+      this.scene.add(mesh);
+      this.meshes.push(mesh);
+    });
+  }
+
+  /** Hide tiles beyond the draw distance (frustum culling handles the ones behind the camera). */
+  update(camera) {
+    this.fade.value = this.drawDist;
+    const c = new THREE.Vector2(camera.position.x, camera.position.z);
+    const lim = this.drawDist + this.tile * 0.75;
+    for (const m of this.meshes) m.visible = m.userData.center.distanceTo(c) < lim;
   }
 }

@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const compression = require('compression');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -208,6 +209,7 @@ function crudRoutes(router, name, prefix, clean, getList = () => db[name]) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(compression()); // gzip text (JS, JSON, HTML): three.js 1.3 MB -> ~0.3 MB
 app.use(express.json({ limit: '12mb' }));
 app.use((req, res, next) => { if (!req.body || typeof req.body !== 'object') req.body = {}; next(); });
 app.use((req, res, next) => {

@@ -73,17 +73,18 @@ const GRADE = {
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }`,
 };
-let composer = null;
+let composer = null, gtao = null, bloom = null;
 if (HIGH) {
   const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { samples: 4, type: THREE.HalfFloatType });
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(Math.min(PR, 1.5));
   composer.addPass(new RenderPass(scene, camera));
-  const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
   gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.2, scale: 1.0 });
   gtao.blendIntensity = 0.85;
   composer.addPass(gtao);
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.16, 0.5, 0.92));
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.16, 0.5, 0.92);
+  composer.addPass(bloom);
   composer.addPass(new OutputPass());
   composer.addPass(new ShaderPass(GRADE));
 }
@@ -315,7 +316,7 @@ applyHud();
 
 const loader = document.getElementById('loader');
 if (STILL) loader.remove(); else loader.classList.add('done');
-window.__farm = { farm, chars, hud, camera, controls }; // handy for debugging in the console
+window.__farm = { farm, chars, hud, camera, controls, renderer, scene }; // handy for debugging in the console
 window.__farmReady = true;
 
 // ---------------------------------------------------------------- editor (admins, or ?edit to try it)
@@ -358,6 +359,61 @@ addEventListener('resize', () => {
   composer?.setSize(innerWidth, innerHeight);
 });
 
+// ---------------------------------------------------------------- quality: automatic or chosen
+// Auto watches the frame rate and steps down (effects, resolution, grass distance, shadow size)
+// when a device struggles, and back up when it has headroom.
+const LEVELS = [
+  { name: 'Ultra', pr: Math.min(devicePixelRatio, 1.5), ao: true, bloom: true, grass: 85, shadow: 4096 },
+  { name: 'High', pr: Math.min(devicePixelRatio, 1.25), ao: false, bloom: true, grass: 70, shadow: 4096 },
+  { name: 'Medium', pr: 1, ao: false, bloom: false, grass: 55, shadow: 2048 },
+  { name: 'Low', pr: 0.75, ao: false, bloom: false, grass: 35, shadow: 1024 },
+];
+let level = -1;
+function applyLevel(i) {
+  if (i === level) return;
+  level = i;
+  const L = LEVELS[i];
+  const pr = Number(params.get('pr')) || L.pr;
+  renderer.setPixelRatio(pr);
+  renderer.setSize(innerWidth, innerHeight);
+  if (composer) {
+    composer.setPixelRatio(Math.min(pr, 1.5));
+    composer.setSize(innerWidth, innerHeight);
+    gtao.enabled = L.ao;
+    bloom.enabled = L.bloom;
+  }
+  grass.drawDist = L.grass;
+  if (env.sun.shadow.mapSize.x !== L.shadow) {
+    env.sun.shadow.mapSize.setScalar(L.shadow);
+    env.sun.shadow.map?.dispose();
+    env.sun.shadow.map = null;
+  }
+  qualityInfo.textContent = qualityMode === 'auto' ? `Auto · ${L.name}` : L.name;
+}
+const qualitySel = document.getElementById('quality');
+const qualityInfo = document.getElementById('qualityInfo');
+let qualityMode = 'auto';
+try { qualityMode = localStorage.getItem('farmQuality') || 'auto'; } catch { /* storage unavailable */ }
+qualitySel.value = qualityMode;
+const autoStart = STILL && HIGH ? 0 : HIGH ? 1 : 2;
+applyLevel(qualityMode === 'auto' ? autoStart : Number(qualityMode));
+qualitySel.addEventListener('change', () => {
+  qualityMode = qualitySel.value;
+  try { localStorage.setItem('farmQuality', qualityMode); } catch { /* storage unavailable */ }
+  level = -1;
+  applyLevel(qualityMode === 'auto' ? autoStart : Number(qualityMode));
+});
+const fps = { time: 0, frames: 0, lastChange: 0, clock: 0 };
+function autoQuality(rawDt) {
+  if (qualityMode !== 'auto' || STILL || document.hidden) return;
+  fps.time += rawDt; fps.frames++; fps.clock += rawDt;
+  if (fps.time < 2) return;
+  const rate = fps.frames / fps.time;
+  fps.time = 0; fps.frames = 0;
+  if (rate < 40 && level < LEVELS.length - 1) { applyLevel(level + 1); fps.lastChange = fps.clock; }
+  else if (rate > 57 && level > 0 && fps.clock - fps.lastChange > 10) { applyLevel(level - 1); fps.lastChange = fps.clock; }
+}
+
 const clock = new THREE.Clock();
 let framesAfterLoad = 0;
 renderer.setAnimationLoop(() => {
@@ -366,7 +422,10 @@ renderer.setAnimationLoop(() => {
     window.__farmStill = true;
     return;
   }
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.1);
+  autoQuality(rawDt);
+  grass.update(camera);
   wind.uTime.value += dt;
   farm.animate(dt);
   const before = chars.player ? chars.player.pos.clone() : null;

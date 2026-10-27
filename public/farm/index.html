@@ -11,16 +11,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    :root { --ink: #10202e; --panel: rgba(255, 255, 255, 0.86); --accent: #0b2a52; --hl: #ffc23d; --line: rgba(16, 32, 46, 0.12); }
+    :root { --ink: #10202e; --panel: rgba(255, 255, 255, 0.93); --accent: #0b2a52; --hl: #ffc23d; --line: rgba(16, 32, 46, 0.12); }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #b9c9d8; font-family: Poppins, system-ui, sans-serif; color: var(--ink); }
     canvas { display: block; touch-action: none; }
     button { font: inherit; }
-    .glass { background: var(--panel); backdrop-filter: blur(8px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); border-radius: 12px; }
+    .glass { background: var(--panel); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); border-radius: 12px; }
     .ui { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
           padding: 10px 14px; font-size: 13px; max-width: calc(100vw - 32px); }
     .ui label { display: flex; gap: 8px; align-items: center; }
     .ui input[type=range] { width: 140px; accent-color: var(--accent); }
+    .ui select { font: inherit; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line, #ccd); background: #fff; }
+    .ui .qinfo { opacity: 0.6; }
     .btn { border: 0; border-radius: 8px; padding: 6px 12px; background: var(--accent); color: #fff; cursor: pointer; }
     .btn.alt { background: #fff; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
     .ui .hint { opacity: 0.7; }
@@ -33,7 +35,7 @@
 
 
     /* ---------- digital-twin overlay ---------- */
-    :root { --hud-bg: rgba(5, 28, 36, 0.72); --hud-line: rgba(88, 226, 210, 0.35); --hud-ink: #dffbf7; --hud-acc: #3ee6cf; --hud-dim: rgba(223, 251, 247, 0.62); }
+    :root { --hud-bg: rgba(5, 28, 36, 0.84); --hud-line: rgba(88, 226, 210, 0.35); --hud-ink: #dffbf7; --hud-acc: #3ee6cf; --hud-dim: rgba(223, 251, 247, 0.62); }
     .hud-markers { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
     .hud-marker { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0;
                   border: 0; background: none; cursor: pointer; pointer-events: auto; transform-origin: 50% 100%; font: inherit; }
@@ -41,21 +43,21 @@
                        background: radial-gradient(circle at 35% 30%, rgba(62, 230, 207, 0.55), rgba(5, 40, 48, 0.9));
                        border: 2px solid var(--hud-acc); box-shadow: 0 0 14px rgba(62, 230, 207, 0.55); transition: transform 0.2s; }
     .hud-marker .name { padding: 2px 8px; border-radius: 6px; background: var(--hud-bg); color: var(--hud-ink); font-size: 12px;
-                        white-space: nowrap; border: 1px solid var(--hud-line); backdrop-filter: blur(4px); }
+                        white-space: nowrap; border: 1px solid var(--hud-line); }
     .hud-marker .stem { position: absolute; top: 100%; left: 50%; width: 2px; margin-left: -1px;
                         background: linear-gradient(var(--hud-acc), rgba(62, 230, 207, 0)); pointer-events: none; }
     .hud-marker:hover .pin, .hud-marker.on .pin { transform: scale(1.15); box-shadow: 0 0 22px rgba(62, 230, 207, 0.9); }
     .hud-marker.on .name { background: var(--hud-acc); color: #032027; font-weight: 600; }
     .hud-tabs { position: fixed; top: 14px; left: 0; right: 0; margin: 0 auto; width: fit-content; max-width: calc(100vw - 460px);
                 display: flex; gap: 4px; padding: 5px; z-index: 6; overflow-x: auto; border-radius: 12px;
-                background: var(--hud-bg); border: 1px solid var(--hud-line); backdrop-filter: blur(8px); }
+                background: var(--hud-bg); border: 1px solid var(--hud-line); }
     .hud-tabs .tab { flex: none; border: 0; background: none; color: var(--hud-ink); padding: 6px 11px; border-radius: 8px; cursor: pointer;
                      font: inherit; font-size: 12.5px; white-space: nowrap; }
     .hud-tabs .tab:hover { background: rgba(62, 230, 207, 0.15); }
     .hud-tabs .tab.on { background: var(--hud-acc); color: #032027; font-weight: 600; }
     .hud-tabs .tab.tour { color: var(--hud-acc); border: 1px solid var(--hud-line); }
     .hud-panel { position: fixed; z-index: 5; color: var(--hud-ink); font-size: 12.5px; padding: 14px; border-radius: 14px;
-                 background: var(--hud-bg); border: 1px solid var(--hud-line); backdrop-filter: blur(8px);
+                 background: var(--hud-bg); border: 1px solid var(--hud-line);
                  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25), inset 0 0 30px rgba(62, 230, 207, 0.06); }
     .hud-panel h2 { margin: 0; font-size: 16px; letter-spacing: 0.02em; }
     .hud-panel h3 { margin: 14px 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--hud-acc);
@@ -130,7 +132,7 @@
     body.editing .back { display: none; }
     body.editing .ui .hint { display: none; }
     .editor-toolbar { position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; width: fit-content; gap: 10px; padding: 6px; z-index: 10;
-                      background: var(--panel); backdrop-filter: blur(8px); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+                      background: var(--panel); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
                       flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); font-size: 13px; }
     .editor-toolbar .group { display: flex; gap: 4px; align-items: center; padding-right: 10px; border-right: 1px solid var(--line); }
     .editor-toolbar .group:last-of-type { border-right: 0; padding-right: 0; }
@@ -149,7 +151,7 @@
     .tb-menu .menu button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
     .tb-menu .menu button:hover { background: rgba(11, 42, 82, 0.08); }
     .editor-panel { position: fixed; top: 72px; bottom: 80px; width: 250px; overflow: auto; padding: 12px; font-size: 13px; z-index: 9;
-                    background: var(--panel); backdrop-filter: blur(8px); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+                    background: var(--panel); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
     .editor-panel.palette { left: 12px; }
     .editor-panel.props { right: 12px; bottom: auto; max-height: calc(100vh - 160px); }
     .editor-panel h3 { margin: 0 0 8px; font-size: 14px; }
@@ -237,6 +239,10 @@
     <button id="spin" class="btn" type="button">Auto-rotate</button>
     <button id="hudToggle" class="btn alt" type="button">Hide dashboard</button>
     <button id="walk" class="btn alt" type="button" hidden>🚶 Walk as farmer</button>
+    <label title="Auto lowers effects and resolution on slower devices">Quality
+      <select id="quality"><option value="auto">Auto</option><option value="0">Ultra</option><option value="1">High</option>
+        <option value="2">Medium</option><option value="3">Low</option></select></label>
+    <small id="qualityInfo" class="qinfo"></small>
     <button id="edit" class="btn alt" type="button" hidden>Edit farm</button>
     <span class="hint">Drag to orbit · scroll / pinch to zoom · right-drag to pan</span>
   </div>

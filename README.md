@@ -110,6 +110,12 @@ blender -b -P tools/farm/rig_character.py -- farmer.glb public/farm/characters/f
 A `.glb` uploaded in the editor that already has a skeleton and animations named `Idle` and
 `Walk` (`Run` and `Work` optional), e.g. from Mixamo, also becomes a walking character.
 
+**Performance.** Grass is drawn in 16 m tiles only near the camera (fading out with distance),
+the forest is split into sectors so off-screen trees are skipped, and *Quality: Auto* watches the
+frame rate and steps down (ambient occlusion → glow → resolution, grass distance and shadow
+size) on slower devices. Visitors can also pick Ultra / High / Medium / Low; the choice is
+remembered per browser. The server gzips text responses (three.js: 1.3 MB → 0.27 MB).
+
 **Using your own 3D models.** Every object can be swapped for a better model, and new ones
 (hydroponic systems, machines…) can be added without touching code:
 
